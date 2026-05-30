@@ -1,3 +1,662 @@
-from django.shortcuts import render
+from __future__ import annotations
 
-# Create your views here.
+import logging
+from rest_framework import status
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.views import APIView
+from drf_yasg import openapi
+from drf_yasg.utils import swagger_auto_schema 
+from accounts.models import User
+from accounts.serializers import (
+    ConnectFilterSerializer,
+    ConnectRespondSerializer,
+    ConnectUserSerializer,
+    DevicePayloadSerializer,
+    LoginSerializer,
+    LogoutSerializer,
+    PasswordChangeSerializer,
+    PasswordResetConfirmSerializer,
+    PasswordResetRequestSerializer,
+    ProfileImageUploadSerializer,
+    ProfileUpdateSerializer,
+    PushTokenUpdateSerializer,
+    RegisterSerializer,
+    ResendOTPSerializer,
+    TokenRefreshSerializer,
+    UserDeviceSerializer,
+    UserLocationIngestSerializer,
+    UserMeSerializer,
+    UserProfileSerializer,
+    VerifyOTPSerializer,
+)
+from accounts.services import (
+    AuthenticationService,
+    DeviceService,
+    OTPService,
+    PasswordService,
+    ProfileService,
+    RegistrationService,
+    TokenService,
+)
+from accounts.services.connect import ConnectService
+from accounts.services.device import DevicePayload
+from accounts.tasks import async_respond_to_connection, async_send_connection_request, process_user_location
+from accounts.services.exceptions import NotFoundError
+from accounts.throttles import (
+    LoginThrottle,
+    OTPRequestThrottle,
+    OTPVerifyThrottle,
+    RegistrationThrottle,
+)
+from utils.enum import OTPChannel, OTPPurpose
+from utils.pagination import StandardPagination
+from utils.responses import APIResponse
+
+
+logger = logging.getLogger(__name__)
+
+
+def _client_ip(request) -> str | None:
+    fwd = request.META.get("HTTP_X_FORWARDED_FOR")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR")
+
+
+#  registration & OTP 
+
+
+class RegisterView(APIView):
+    permission_classes = [AllowAny]
+    throttle_classes = [RegistrationThrottle]
+    throttle_scope = "registration"
+
+    @swagger_auto_schema(request_body=RegisterSerializer)
+    def post(self, request):
+        data = RegisterSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        result = RegistrationService().start_registration(
+            email=data.validated_data["email"],
+            username=data.validated_data["username"],
+            password=data.validated_data["password"],
+            phone_number=data.validated_data.get("phone_number") or None,
+            referral_code=data.validated_data.get("referral_code") or None,
+            ip_address=_client_ip(request),
+        )
+        return APIResponse.success(
+            message="OTP has been sent to your email. Verify to finish creating your account.",
+            data={
+                "email": result.email,
+                "otp_expires_at": result.otp_expires_at,
+                "cooldown_until": result.cooldown_until,
+                "next": "verify_otp",
+            },
+            status_code=status.HTTP_202_ACCEPTED,
+        )
+
+
+class VerifyRegistrationOTPView(APIView):
+    permission_classes = [AllowAny]
+    throttle_classes = [OTPVerifyThrottle]
+    throttle_scope = "otp_verify"
+
+    @swagger_auto_schema(request_body=VerifyOTPSerializer)
+    def post(self, request):
+        data = VerifyOTPSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+
+        result = RegistrationService().complete_registration(
+            email=data.validated_data["email"],
+            code=data.validated_data["code"],
+        )
+
+        device_payload = data.validated_data.get("device")
+        if device_payload:
+
+            user = User.objects.get(pk=result.user_id)
+            DeviceService().register(
+                user=user,
+                payload=DevicePayload(
+                    name=device_payload.get("name", ""),
+                    platform=device_payload["platform"],
+                    device_fingerprint=device_payload["device_fingerprint"],
+                    os_version=device_payload.get("os_version", ""),
+                    app_version=device_payload.get("app_version", ""),
+                    push_token=device_payload.get("push_token", ""),
+                ),
+                ip_address=_client_ip(request),
+            )
+
+        return APIResponse.success(
+            message="Account verified and created successfully.",
+            data={
+                "user_id": result.user_id,
+                "email": result.email,
+                "access": result.access,
+                "refresh": result.refresh,
+                "token_type": "Bearer",
+            },
+            status_code=status.HTTP_201_CREATED,
+        )
+
+
+class ResendOTPView(APIView):
+    """
+    Resend OTP. For purpose=registration the OTP lives in Redis; for
+    every other purpose the DB-backed OTPService is used.
+    """
+    permission_classes = [AllowAny]
+    throttle_classes = [OTPRequestThrottle]
+    throttle_scope = "otp_request"
+
+    @swagger_auto_schema(request_body=ResendOTPSerializer)
+    def post(self, request):
+        data = ResendOTPSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        purpose = data.validated_data.get("purpose") or OTPPurpose.REGISTRATION.value
+
+        if purpose == OTPPurpose.REGISTRATION.value:
+            result = RegistrationService().resend_registration_otp(
+                email=data.validated_data["email"]
+            )
+            return APIResponse.success(
+                message="A new OTP has been sent to your email.",
+                data={
+                    "email": result.email,
+                    "otp_expires_at": result.otp_expires_at,
+                    "cooldown_until": result.cooldown_until,
+                    "purpose": purpose,
+                },
+            )
+        
+        email = data.validated_data["email"].lower()
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist as exc:
+            raise NotFoundError("No account found for this email.", code="user_not_found") from exc
+
+        issued = OTPService().issue(
+            user=user,
+            purpose=purpose,
+            delivery_address=email,
+            channel=OTPChannel.EMAIL.value,
+            ip_address=_client_ip(request),
+        )
+        from accounts import tasks
+        tasks.send_otp_email.delay(
+            to=email, code=issued.code, purpose=purpose, username=user.username
+        )
+        return APIResponse.success(
+            message="A new OTP has been sent to your email.",
+            data={"otp_expires_at": issued.expires_at, "purpose": purpose},
+        )
+
+
+class LoginView(APIView):
+    permission_classes = [AllowAny]
+    throttle_classes = [LoginThrottle]
+    throttle_scope = "login"
+
+    @swagger_auto_schema(request_body=LoginSerializer)
+    def post(self, request):
+        data = LoginSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        result = AuthenticationService().login(
+            email=data.validated_data["email"],
+            password=data.validated_data["password"],
+            device_payload=data.validated_data.get("device"),
+            ip_address=_client_ip(request),
+        )
+        return APIResponse.success(
+            message="Logged in successfully.",
+            data={
+                "user_id": result.user_id,
+                "access": result.access,
+                "access_expires_at": result.access_expires_at,
+                "refresh": result.refresh,
+                "refresh_expires_at": result.refresh_expires_at,
+                "token_type": "Bearer",
+                "device_id": result.device_id,
+            },
+        )
+
+
+class LogoutView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(request_body=LogoutSerializer)
+    def post(self, request):
+        data = LogoutSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        AuthenticationService().logout(refresh_token=data.validated_data["refresh"])
+        return APIResponse.success(message="Logged out successfully.", data={})
+
+
+class LogoutEverywhereView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        count = AuthenticationService().logout_everywhere(user=request.user)
+        return APIResponse.success(
+            message="All active sessions have been signed out.",
+            data={"sessions_revoked": count},
+        )
+
+
+#  token management 
+class TokenRefreshView(APIView):
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(request_body=TokenRefreshSerializer)
+    def post(self, request):
+        data = TokenRefreshSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        tokens = TokenService().refresh(data.validated_data["refresh"])
+        return APIResponse.success(message="Token refreshed successfully.", data=tokens)
+
+
+#  password reset / change 
+
+
+class PasswordResetRequestView(APIView):
+    permission_classes = [AllowAny]
+    throttle_classes = [OTPRequestThrottle]
+    throttle_scope = "otp_request"
+
+    @swagger_auto_schema(request_body=PasswordResetRequestSerializer)
+    def post(self, request):
+        data = PasswordResetRequestSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        PasswordService().request_reset(
+            email=data.validated_data["email"], ip_address=_client_ip(request)
+        )
+        # Deliberately uniform response: don't leak whether the email exists.
+        return APIResponse.success(
+            message="If that email is registered, an OTP has been sent.",
+            data={},
+        )
+
+
+class PasswordResetConfirmView(APIView):
+    permission_classes = [AllowAny]
+    throttle_classes = [OTPVerifyThrottle]
+    throttle_scope = "otp_verify"
+
+    @swagger_auto_schema(request_body=PasswordResetConfirmSerializer)
+    def post(self, request):
+        data = PasswordResetConfirmSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        PasswordService().confirm_reset(**data.validated_data)
+        return APIResponse.success(
+            message="Password has been reset. Please log in with your new password.",
+            data={},
+        )
+
+
+class PasswordChangeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(request_body=PasswordChangeSerializer)
+    def post(self, request):
+        from accounts.tasks import send_user_push_notification
+
+        user = request.user
+        data = PasswordChangeSerializer(data=request.data)
+        try:
+            data.is_valid(raise_exception=True)
+            PasswordService().change_password(user=user, **data.validated_data)
+        except Exception:
+            send_user_push_notification.delay(
+                user_id=str(user.id),
+                title="Security Alert",
+                body="Someone attempted to change your password. If this wasn't you, secure your account immediately.",
+                data={"type": "password_change_failed"},
+            )
+            raise
+
+        send_user_push_notification.delay(
+            user_id=str(user.id),
+            title="Password Changed",
+            body="Your password was changed successfully.",
+            data={"type": "password_change_success"},
+        )
+        return APIResponse.success(
+            message="Password updated. All other sessions have been signed out.",
+            data={},
+        )
+
+
+class MeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(responses={200: UserMeSerializer()})
+    def get(self, request):
+        return APIResponse.success(
+            message="Current user fetched successfully.",
+            data=UserMeSerializer(request.user).data,
+        )
+
+
+class ProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(responses={200: UserProfileSerializer()})
+    def get(self, request):
+        profile = ProfileService().get(user=request.user)
+        return APIResponse.success(
+            message="Profile fetched successfully.",
+            data=UserProfileSerializer(profile).data,
+        )
+
+    @swagger_auto_schema(request_body=ProfileUpdateSerializer, responses={200: UserProfileSerializer()})
+    def patch(self, request):
+        data = ProfileUpdateSerializer(data=request.data, partial=True)
+        data.is_valid(raise_exception=True)
+        profile = ProfileService().update_partial(user=request.user, data=data.validated_data)
+        return APIResponse.success(
+            message="Profile updated successfully.",
+            data=UserProfileSerializer(profile).data,
+        )
+
+
+
+def _dispatch_profile_image_upload(request, field: str) -> APIResponse:
+    from clients.aws.storage import upload_file
+    from medias.models import Media
+
+    data = ProfileImageUploadSerializer(data=request.data)
+    data.is_valid(raise_exception=True)
+    file = data.validated_data["file"]
+
+    result = upload_file(file)
+
+    profile = request.user.profile
+    old_media = getattr(profile, field, None)
+
+    media = Media.objects.create(
+        owner=request.user,
+        media_type="image",
+        storage_key=result["key"],
+        cdn_url=result["url"],
+        original_filename=file.name,
+        mime_type=result["content_type"],
+        file_size_bytes=result["file_size_bytes"],
+        width_px=result.get("width"),
+        height_px=result.get("height"),
+        processing_status="ready",
+    )
+    setattr(profile, field, media)
+    profile.save(update_fields=[field])
+
+    if old_media:
+        from accounts.tasks import cleanup_old_profile_image
+
+        cleanup_old_profile_image.delay(
+            media_id=str(old_media.pk),
+            user_id=str(request.user.id),
+            field=field,
+        )
+
+    return APIResponse.success(
+        message=f"Your profile {field} has been updated.",
+        data={field: result["url"]},
+    )
+
+
+def _delete_profile_image(request, field: str) -> APIResponse:
+    from clients.aws.storage import delete_file
+    from medias.models import Media
+
+    profile = request.user.profile
+    old_media = getattr(profile, field, None)
+    if not old_media:
+        return APIResponse.success(
+            message=f"No {field.replace('_', ' ')} to remove.",
+            data={},
+        )
+
+    delete_file(old_media.cdn_url)
+    old_media.delete()
+
+    setattr(profile, field, None)
+    profile.save(update_fields=[field])
+
+    return APIResponse.success(
+        message=f"{field.replace('_', ' ').title()} removed successfully.",
+        data={},
+    )
+
+
+class ProfileAvatarUpdateView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+
+    @swagger_auto_schema(request_body=ProfileImageUploadSerializer)
+    def put(self, request):
+        return _dispatch_profile_image_upload(request, "avatar")
+
+    @swagger_auto_schema(responses={200: "Avatar removed"})
+    def delete(self, request):
+        return _delete_profile_image(request, "avatar")
+
+
+class ProfileCoverUpdateView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    @swagger_auto_schema(request_body=ProfileImageUploadSerializer)
+    def put(self, request):
+        return _dispatch_profile_image_upload(request, "cover_photo")
+
+    @swagger_auto_schema(responses={200: "Cover photo removed"})
+    def delete(self, request):
+        return _delete_profile_image(request, "cover_photo")
+
+
+class DeviceListCreateView(APIView):
+    """
+    GET paginated list of the caller's devices.
+    POST register a new device for the caller.
+    """
+    permission_classes = [IsAuthenticated]
+    pagination_message = "Devices fetched successfully."
+
+    @swagger_auto_schema(responses={200: UserDeviceSerializer(many=True)})
+    def get(self, request):
+
+        queryset = DeviceService().list_for_user(request.user)
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(list(queryset), request, view=self)
+        if page is None:
+            return APIResponse.success(
+                message="Devices fetched successfully.",
+                data=UserDeviceSerializer(queryset, many=True).data,
+            )
+        serializer = UserDeviceSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
+    @swagger_auto_schema(request_body=DevicePayloadSerializer)
+    def post(self, request):
+        data = DevicePayloadSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        payload = DevicePayload(
+            name=data.validated_data.get("name", ""),
+            platform=data.validated_data["platform"],
+            device_fingerprint=data.validated_data["device_fingerprint"],
+            os_version=data.validated_data.get("os_version", ""),
+            app_version=data.validated_data.get("app_version", ""),
+            push_token=data.validated_data.get("push_token", ""),
+        )
+        device = DeviceService().register(
+            user=request.user, payload=payload, ip_address=_client_ip(request)
+        )
+        return APIResponse.success(
+            message="Device registered successfully.",
+            data=UserDeviceSerializer(device).data,
+            status_code=status.HTTP_201_CREATED,
+        )
+
+
+class DeviceDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        manual_parameters=[
+            openapi.Parameter("device_id", openapi.IN_PATH, description="Device ID", type=openapi.TYPE_STRING),
+        ],
+    )
+    def delete(self, request, device_id):
+        DeviceService().revoke(user=request.user, device_id=device_id)
+        return APIResponse.success(message="Device revoked successfully.", data={})
+
+
+class DevicePushTokenView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        request_body=PushTokenUpdateSerializer,
+        manual_parameters=[
+            openapi.Parameter("device_id", openapi.IN_PATH, description="Device ID", type=openapi.TYPE_STRING),
+        ],
+    )
+    def post(self, request, device_id):
+        data = PushTokenUpdateSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        device = DeviceService().update_push_token(
+            user=request.user,
+            device_id=device_id,
+            push_token=data.validated_data["push_token"],
+        )
+        return APIResponse.success(
+            message="Push token updated successfully.",
+            data=UserDeviceSerializer(device).data,
+        )
+
+
+class DeviceTrustView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        manual_parameters=[
+            openapi.Parameter("device_id", openapi.IN_PATH, description="Device ID", type=openapi.TYPE_STRING),
+        ],
+    )
+    def post(self, request, device_id):
+        device = DeviceService().trust(user=request.user, device_id=device_id)
+        return APIResponse.success(
+            message="Device marked as trusted.",
+            data=UserDeviceSerializer(device).data,
+        )
+
+
+#  connect & discovery 
+
+class ConnectDiscoveryView(APIView):
+    """
+    GET Fetch discoverable users based on distance, city, state, or country.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        manual_parameters=[
+            openapi.Parameter("distance_km", openapi.IN_QUERY, type=openapi.TYPE_NUMBER, required=False),
+            openapi.Parameter("city", openapi.IN_QUERY, type=openapi.TYPE_STRING, required=False),
+            openapi.Parameter("state", openapi.IN_QUERY, type=openapi.TYPE_STRING, required=False),
+            openapi.Parameter("country", openapi.IN_QUERY, type=openapi.TYPE_STRING, required=False),
+        ],
+        responses={200: ConnectUserSerializer(many=True)},
+    )
+    def get(self, request):
+
+        filters = ConnectFilterSerializer(data=request.query_params)
+        filters.is_valid(raise_exception=True)
+
+        queryset = ConnectService().get_discoverable_users(request.user, filters.validated_data)
+        
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(queryset, request, view=self)
+        if page is None:
+            return APIResponse.success(
+                message="Discoverable users fetched successfully.",
+                data=ConnectUserSerializer(queryset, many=True).data,
+            )
+        serializer = ConnectUserSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
+
+class ConnectRequestView(APIView):
+    """
+    POST  Send a connection request to a specific user asynchronously.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        manual_parameters=[
+            openapi.Parameter("user_id", openapi.IN_PATH, description="Recipient user ID", type=openapi.TYPE_STRING),
+        ],
+    )
+    def post(self, request, user_id):
+        
+        async_send_connection_request.delay(
+            requester_id=str(request.user.id),
+            recipient_id=str(user_id)
+        )
+        return APIResponse.success(
+            message="Connection request dispatched successfully.",
+            data={},
+            status_code=status.HTTP_202_ACCEPTED
+        )
+
+class ConnectRespondView(APIView):
+    """
+    POST Accept or reject a connection request asynchronously.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        request_body=ConnectRespondSerializer,
+        manual_parameters=[
+            openapi.Parameter("connection_id", openapi.IN_PATH, description="Connection ID", type=openapi.TYPE_STRING),
+        ],
+    )
+    def post(self, request, connection_id):
+        
+        data = ConnectRespondSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+
+        async_respond_to_connection.delay(
+            user_id=str(request.user.id),
+            connection_id=str(connection_id),
+            action=data.validated_data["action"]
+        )
+        
+        return APIResponse.success(
+            message=f"Connection response ({data.validated_data['action']}) dispatched successfully.",
+            data={},
+            status_code=status.HTTP_202_ACCEPTED
+        )
+
+
+class UserLocationUpdateView(APIView):
+    """
+    POST  Ingest user location coordinates asynchronously to handle high throughput.
+    """
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(request_body=UserLocationIngestSerializer)
+    def post(self, request):
+        data = UserLocationIngestSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+
+        process_user_location.delay(
+            user_id=str(request.user.id),
+            latitude=str(data.validated_data["latitude"]),
+            longitude=str(data.validated_data["longitude"]),
+            ip_address=_client_ip(request)
+        )
+
+        return APIResponse.success(
+            message="Location update accepted.",
+            data={},
+            status_code=status.HTTP_202_ACCEPTED
+        )

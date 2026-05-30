@@ -1,0 +1,187 @@
+{
+  "rabbit_version": "3.13.0",
+  "rabbitmq_version": "3.13.0",
+  "product_name": "RabbitMQ",
+
+  "vhosts": [
+    { "name": "social_vhost" }
+  ],
+
+  "users": [
+    {
+      "name": "rabbit",
+      "password_hash": "",
+      "hashing_algorithm": "rabbit_password_hashing_sha256",
+      "tags": "administrator",
+      "limits": {}
+    }
+  ],
+
+  "permissions": [
+    {
+      "user":      "rabbit",
+      "vhost":     "social_vhost",
+      "configure": ".*",
+      "write":     ".*",
+      "read":      ".*"
+    }
+  ],
+
+  "exchanges": [
+    {
+      "name":        "default",
+      "vhost":       "social_vhost",
+      "type":        "direct",
+      "durable":     true,
+      "auto_delete": false,
+      "internal":    false,
+      "arguments":   {}
+    },
+    {
+      "name":        "notifications",
+      "vhost":       "social_vhost",
+      "type":        "direct",
+      "durable":     true,
+      "auto_delete": false,
+      "internal":    false,
+      "arguments":   {}
+    },
+    {
+      "name":        "otp",
+      "vhost":       "social_vhost",
+      "type":        "direct",
+      "durable":     true,
+      "auto_delete": false,
+      "internal":    false,
+      "arguments":   {}
+    },
+    {
+      "name":        "media",
+      "vhost":       "social_vhost",
+      "type":        "direct",
+      "durable":     true,
+      "auto_delete": false,
+      "internal":    false,
+      "arguments":   {}
+    },
+    {
+      "name":        "dead_letters",
+      "vhost":       "social_vhost",
+      "type":        "fanout",
+      "durable":     true,
+      "auto_delete": false,
+      "internal":    false,
+      "arguments":   {}
+    }
+  ],
+
+  "queues": [
+    {
+      "name":        "default",
+      "vhost":       "social_vhost",
+      "durable":     true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dead_letters"
+      }
+    },
+    {
+      "name":        "notifications",
+      "vhost":       "social_vhost",
+      "durable":     true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dead_letters",
+        "x-max-priority": 10
+      }
+    },
+    {
+      "name":        "otp",
+      "vhost":       "social_vhost",
+      "durable":     true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dead_letters",
+        "x-message-ttl": 600000,
+        "x-max-priority": 10
+      }
+    },
+    {
+      "name":        "media",
+      "vhost":       "social_vhost",
+      "durable":     true,
+      "auto_delete": false,
+      "arguments": {
+        "x-dead-letter-exchange": "dead_letters"
+      }
+    },
+    {
+      "name":        "dead_letter_queue",
+      "vhost":       "social_vhost",
+      "durable":     true,
+      "auto_delete": false,
+      "arguments":   {}
+    }
+  ],
+
+  "bindings": [
+    {
+      "source":           "default",
+      "vhost":            "social_vhost",
+      "destination":      "default",
+      "destination_type": "queue",
+      "routing_key":      "default",
+      "arguments":        {}
+    },
+    {
+      "source":           "notifications",
+      "vhost":            "social_vhost",
+      "destination":      "notifications",
+      "destination_type": "queue",
+      "routing_key":      "notifications",
+      "arguments":        {}
+    },
+    {
+      "source":           "otp",
+      "vhost":            "social_vhost",
+      "destination":      "otp",
+      "destination_type": "queue",
+      "routing_key":      "otp",
+      "arguments":        {}
+    },
+    {
+      "source":           "media",
+      "vhost":            "social_vhost",
+      "destination":      "media",
+      "destination_type": "queue",
+      "routing_key":      "media",
+      "arguments":        {}
+    },
+    {
+      "source":           "dead_letters",
+      "vhost":            "social_vhost",
+      "destination":      "dead_letter_queue",
+      "destination_type": "queue",
+      "routing_key":      "",
+      "arguments":        {}
+    }
+  ],
+
+  "policies": [
+    {
+      "vhost":      "social_vhost",
+      "name":       "ha-all",
+      "pattern":    ".*",
+      "definition": {
+        "ha-mode":   "all",
+        "ha-sync-mode": "automatic"
+      },
+      "priority":   0,
+      "apply-to":   "queues"
+    }
+  ],
+
+  "global_parameters": [],
+  "parameters": [],
+  "topic_permissions": []
+}
