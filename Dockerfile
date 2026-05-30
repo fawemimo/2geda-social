@@ -1,69 +1,41 @@
-# syntax=docker/dockerfile:1.7
-# ---------------------------------------------------------------------------
-# Multi-stage build for the 2geda Social API.
-#   builder  → installs Python deps into a virtualenv
-#   runtime  → lean final image with the venv + source code
-# ---------------------------------------------------------------------------
+FROM python:3.11.4-slim
 
-FROM python:3.12-slim AS builder
+# Set work directory
+WORKDIR /app
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y \
+    python3-dev \
+    default-libmysqlclient-dev \
+    build-essential \
+    pkg-config \
+    libffi-dev \
+    libc6-dev \
+    postgresql-client \
+    gcc \
+    git \
+    libssl-dev \
+    libxml2-dev \
+    libjpeg-dev \
+    zlib1g-dev && \
+    rm -rf /var/lib/apt/lists/*
 
-WORKDIR /build
+# Install netcat
+RUN apt-get update && apt-get install -y netcat-openbsd
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential \
-        libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt /app/
 
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
+# Install Python dependencies
+RUN pip install --upgrade pip -r requirements.txt
 
-COPY requirements.txt .
-RUN pip install --upgrade pip \
- && pip install -r requirements.txt \
- && pip install gunicorn pika
+# Copy application files
+COPY . /app/
+
+# Expose the port
+EXPOSE 8000
 
 
-# ---------------------------------------------------------------------------
-FROM python:3.12-slim AS runtime
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PATH="/opt/venv/bin:$PATH" \
-    DJANGO_SETTINGS_MODULE="core.settings" \
-    APP_HOME=/app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-        libpq5 \
-        curl \
-        gettext \
-        netcat-openbsd \
-    && rm -rf /var/lib/apt/lists/*
 
-RUN groupadd --gid 1001 appgroup \
- && useradd  --uid 1001 --gid appgroup --shell /bin/bash --create-home appuser
-
-COPY --from=builder /opt/venv /opt/venv
-
-WORKDIR ${APP_HOME}
-
-COPY --chown=appuser:appgroup . .
-
-# Entry-point scripts (kept at project root).
-RUN chmod +x ${APP_HOME}/entrypoint.sh \
-              ${APP_HOME}/entrypoint-worker.sh \
-              ${APP_HOME}/entrypoint-beat.sh \
-              ${APP_HOME}/entrypoint-daphne.sh
-
-RUN mkdir -p ${APP_HOME}/staticfiles ${APP_HOME}/mediafiles \
- && chown -R appuser:appgroup ${APP_HOME}/staticfiles ${APP_HOME}/mediafiles
-
-USER appuser
-
-EXPOSE 8000 8001
-
-ENTRYPOINT ["/app/entrypoint.sh"]
