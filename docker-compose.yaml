@@ -96,7 +96,7 @@ services:
   celery:
     build: .
     command: >
-      celery -A quickerpay.celery worker
+      celery -A core.celery worker
       --autoscale=4,1
       --loglevel=info
       --queues=default,high_priority
@@ -117,7 +117,7 @@ services:
 
   celery-beat:
     build: .
-    command: celery -A quickerpay beat --loglevel=info
+    command: celery -A core beat --loglevel=info
     depends_on:
       redis:
         condition: service_healthy
