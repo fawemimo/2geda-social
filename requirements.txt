@@ -34,3 +34,4 @@ whitenoise
 azure-core
 azure-storage-blob
 firebase-admin
+drf_spectacular
