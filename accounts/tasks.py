@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
-import tempfile
 from datetime import timedelta
 
 from celery import shared_task
@@ -10,7 +8,6 @@ from django.utils import timezone
 
 from accounts.services.interfaces import NotificationPayload
 from accounts.services.notifications import (
-    EmailNotificationSender,
     SMSNotificationSender,
 )
 
@@ -114,6 +111,7 @@ def purge_expired_otps(*, older_than_days: int = 1) -> int:
 )
 def process_user_location(user_id: str, latitude: str, longitude: str, ip_address: str | None = None) -> None:
     from accounts.models import User, UserLocation
+    from accounts.services.discovery_cache import DiscoveryCache
     from clients.google.location_address import GoogleLocation
 
     try:
@@ -136,6 +134,19 @@ def process_user_location(user_id: str, latitude: str, longitude: str, ip_addres
         ip_address=ip_address,
         location_data=location_data
     )
+
+    # Warm Redis cache
+    try:
+        DiscoveryCache.set_location(user_id, lat_f, lon_f)
+        meta = {"lat": str(lat_f), "lon": str(lon_f)}
+        if location_data:
+            meta["city"] = location_data.get("city", "") or ""
+            meta["state"] = location_data.get("state", "") or ""
+            meta["country"] = location_data.get("country", "") or ""
+        DiscoveryCache.set_metadata(user_id, **meta)
+    except Exception as exc:
+        logger.warning("Failed to warm Redis cache: %s", exc)
+
     logger.info(f"UserLocation created for {user_id} at {latitude},{longitude}")
 
 

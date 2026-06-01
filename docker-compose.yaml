@@ -171,7 +171,7 @@ services:
       retries: 5
       start_period: 30s
 
-  # --- Celery Worker -------------------------------------------------------
+  #  Celery Worker
   worker:
     <<: *api-common
     container_name: 2geda_worker
@@ -192,7 +192,7 @@ services:
       retries: 3
       start_period: 30s
 
-  # --- Celery Beat (singleton) ---------------------------------------------
+  #  Celery Beat (singleton) 
   beat:
     <<: *api-common
     container_name: 2geda_beat
@@ -206,7 +206,7 @@ services:
     deploy:
       replicas: 1
 
-  # --- Flower (Celery monitoring) ------------------------------------------
+  #  Flower (Celery monitoring) 
   # flower:
   #   <<: *api-common
   #   container_name: 2geda_flower

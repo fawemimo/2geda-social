@@ -648,10 +648,21 @@ class UserLocationUpdateView(APIView):
         data = UserLocationIngestSerializer(data=request.data)
         data.is_valid(raise_exception=True)
 
+        lat = float(data.validated_data["latitude"])
+        lon = float(data.validated_data["longitude"])
+
+        # Eagerly update Redis geoset for immediate discovery accuracy,
+        # while the async task handles the DB write + reverse geocoding.
+        from accounts.services.discovery_cache import DiscoveryCache
+        uid = str(request.user.id)
+        DiscoveryCache.set_location(uid, lat, lon)
+        DiscoveryCache.set_metadata(uid, lat=str(lat), lon=str(lon))
+        DiscoveryCache.invalidate_user(uid)
+
         process_user_location.delay(
-            user_id=str(request.user.id),
-            latitude=str(data.validated_data["latitude"]),
-            longitude=str(data.validated_data["longitude"]),
+            user_id=uid,
+            latitude=str(lat),
+            longitude=str(lon),
             ip_address=_client_ip(request)
         )
 
