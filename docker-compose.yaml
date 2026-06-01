@@ -1,206 +1,142 @@
-name: 2geda_social
-
-x-api-env: &api-env
-  DJANGO_SETTINGS_MODULE: core.settings
-  PYTHONUNBUFFERED: "1"
-  DB_HOST: ${DB_HOST:-postgres}
-  DB_PORT: "5432"
-  DB_NAME: ${DB_NAME}
-  DB_USER: ${DB_USER}
-  DB_PASSWORD: ${DB_PASSWORD}
-  REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
-  REDIS_PASSWORD: ${REDIS_PASSWORD}
-  RABBITMQ_HOST: ${RABBITMQ_HOST}
-  RABBITMQ_PORT: ${RABBITMQ_PORT}
-  RABBITMQ_USER: ${RABBITMQ_USER}
-  RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
-  RABBITMQ_VHOST: ${RABBITMQ_VHOST}
-  CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/${RABBITMQ_VHOST}
-  CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/1
-
-x-api-common: &api-common
-  build:
-    context: .
-    dockerfile: Dockerfile
-    target: runtime
-  image: 2geda/social-api:${IMAGE_TAG:-latest}
-  env_file: .env
-  # These overrides win over anything in `.env`. Containers must talk to
-  # sibling services by their compose name regardless of how `.env` is
-  # configured for local-host development outside Docker.
-  environment:
-    <<: *api-env
-  depends_on:
-    postgres:
-      condition: service_healthy
-    redis:
-      condition: service_healthy
-    rabbitmq:
-      condition: service_healthy
-  restart: unless-stopped
-  networks:
-    - backend
+#docker-compose.yml
+version: '3.8'
 
 services:
-
-  # PostgreSQL 
-  postgres:
-    image: postgres:18-alpine
-    container_name: 2geda_postgres
-    restart: always
-    environment:
-      POSTGRES_DB: ${DB_NAME}
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
-    volumes:
-      - postgres_data:/var/lib/postgresql
-    command: postgres -c listen_addresses='*'
-    ports:
-      - "${DB_PORT_EXPOSE:-5432}:5432"
-    networks:
-      - backend
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
-
-  # Redis
-  # DB 0 — Django cache + rate limiter
-  # DB 1 — Celery result backend
-  # DB 2 — Django Channels backplane (WebSocket pub/sub)
   redis:
-    image: redis:7.2-alpine
-    container_name: 2geda_redis
-    restart: unless-stopped
+    image: redis:7.2 
+    container_name: redis_server
+    restart: unless-stopped  
     command: >
       redis-server
-        --requirepass ${REDIS_PASSWORD}
-        --maxmemory 512mb
-        --maxmemory-policy allkeys-lru
-        --save 60 1000
-        --loglevel notice
+      --requirepass ${REDIS_PASSWORD}
+      --appendonly no
+      --aof-use-rdb-preamble yes
+      --save 300 1000
+      --save 60 10000
+      --maxmemory 512mb
+      --maxmemory-policy volatile-lru
+      --activedefrag yes
+      --lazyfree-lazy-eviction yes
+      --lazyfree-lazy-expire yes
+      --lazyfree-lazy-server-del yes
+      --tcp-backlog 1024
+      --maxclients 10000
+      --loglevel warning
     volumes:
       - redis_data:/data
-    ports:
-      - "${REDIS_PORT_EXPOSE:-6379}:6379"
-    networks:
-      - backend
+    # ports:
+    #   - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 10s
-
-  # RabbitMQ
-  rabbitmq:
-    image: rabbitmq:3.13-management-alpine
-    container_name: 2geda_rabbitmq
-    restart: unless-stopped
+      start_period: 60s
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    sysctls:
+      - net.core.somaxconn=1024
     environment:
-      RABBITMQ_DEFAULT_USER:  ${RABBITMQ_USER}
-      RABBITMQ_DEFAULT_PASS:  ${RABBITMQ_PASSWORD}
-      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST}
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    ports:
-      - "${RABBITMQ_PORT_EXPOSE:-5672}:5672"
-      - "${RABBITMQ_MGMT_PORT_EXPOSE:-15672}:15672"
-    networks:
-      - backend
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 30s
-      
-  api:
-    <<: *api-common
-    container_name: 2geda_api
-    entrypoint: ["/app/entrypoint.sh"]
-    environment:
-      <<: *api-env
-      DJANGO_RUN_MODE:        ${DJANGO_RUN_MODE:-dev}
-      API_BIND:               "0.0.0.0:8000"
-    volumes:
-      - .:/app
-      - static_files:/app/staticfiles
-      - media_files:/app/mediafiles
-    ports:
-      - "${API_PORT_EXPOSE:-8000}:8000"
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/admin/login/ > /dev/null || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 40s
+      - REDIS_AOF_REWRITE_MIN_SIZE=64mb
+      - REDIS_AOF_REWRITE_PERCENT=100
+    deploy:
+      resources:
+        limits:
+          memory: 750m
 
-  # Daphne ASGI (WebSockets) 
-  daphne:
-    <<: *api-common
-    container_name: 2geda_daphne
-    entrypoint: ["/app/entrypoint-daphne.sh"]
+  db:
+    image: postgres:17
+    restart: always
+    container_name: postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # ports:
+    #   - "5432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${DB_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5  
+
+  web:
+    build: .
+    entrypoint: ./entrypoint.sh
+    # command: python manage.py runserver 0.0.0.0:8000
+    command: gunicorn core.asgi:application -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --workers 2
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-      api:
-        condition: service_started
-    environment:
-      <<: *api-env
-      DAPHNE_BIND:            "0.0.0.0"
-      DAPHNE_PORT:            "8001"
-      DAPHNE_LOG_LEVEL:       ${DAPHNE_LOG_LEVEL:-INFO}
     volumes:
       - .:/app
+      - ./staticfiles:/app/staticfiles
     ports:
-      - "${DAPHNE_PORT_EXPOSE:-8001}:8001"
+      - "8000:8000"
+    env_file:
+      - .env
+    restart: unless-stopped
+    environment:  
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_HOST: ${DB_HOST} 
+      POSTGRES_PORT: 5432
+      CELERY_BROKER_URL: redis://redis:6379/0
     healthcheck:
-      test:
-        - "CMD-SHELL"
-        - "python -c \"import socket;s=socket.socket();s.settimeout(3);s.connect(('localhost',8001));s.close()\""
-      interval: 30s
-      timeout: 10s
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/status/"]
+      interval: 10s
+      timeout: 5s
       retries: 5
-      start_period: 30s
 
   #  Celery Worker
   worker:
     <<: *api-common
     container_name: 2geda_worker
     entrypoint: ["/app/entrypoint-worker.sh"]
+
+  celery:
+    build: .
+    command: >
+      celery -A core.celery worker
+      --autoscale=4,1
+      --loglevel=info
+      --queues=default,high_priority
+      --prefetch-multiplier=2
+      --max-tasks-per-child=500
+      --max-memory-per-child=100000
+      -E
+    depends_on:
+      redis:
+        condition: service_healthy
     environment:
-      <<: *api-env
-      CELERY_QUEUES:          ${CELERY_QUEUES:-default,otp,notifications,media}
-      CELERY_CONCURRENCY:     ${CELERY_CONCURRENCY:-4}
-      CELERY_LOG_LEVEL:       ${CELERY_LOG_LEVEL:-info}
-      CELERY_HOSTNAME:        worker@%h
+        CELERY_BROKER_URL: redis://redis:6379/0
+    env_file:
+      - .env
     volumes:
       - .:/app
-      - media_files:/app/mediafiles
-    healthcheck:
-      test: ["CMD", "celery", "-A", "core", "inspect", "ping", "--timeout=10"]
-      interval: 30s
-      timeout: 15s
-      retries: 3
-      start_period: 30s
+    restart: always
 
   #  Celery Beat (singleton) 
   beat:
     <<: *api-common
     container_name: 2geda_beat
     entrypoint: ["/app/entrypoint-beat.sh"]
+
+  celery-beat:
+    build: .
+    command: celery -A core beat --loglevel=info
+    depends_on:
+      redis:
+        condition: service_healthy
     environment:
-      <<: *api-env
-      CELERY_LOG_LEVEL:       ${CELERY_LOG_LEVEL:-info}
-      CELERY_BEAT_SCHEDULER:  django_celery_beat.schedulers:DatabaseScheduler
+      CELERY_BROKER_URL: redis://redis:6379/0
+    env_file:
+      - .env
     volumes:
       - .:/app
     deploy:
@@ -231,14 +167,256 @@ networks:
     driver: bridge
     name: 2geda_backend
 
+    restart: always
 volumes:
-  postgres_data:
-    name: 2geda_postgres_data
   redis_data:
-    name: 2geda_redis_data
-  rabbitmq_data:
-    name: 2geda_rabbitmq_data
-  static_files:
-    name: 2geda_static_files
-  media_files:
-    name: 2geda_media_files
+    driver: local
+  postgres_data:
+
+
+
+
+# name: 2geda_social
+
+# x-api-env: &api-env
+#   DJANGO_SETTINGS_MODULE: core.settings
+#   PYTHONUNBUFFERED: "1"
+#   DB_HOST: ${DB_HOST:-postgres}
+#   DB_PORT: "5432"
+#   DB_NAME: ${DB_NAME}
+#   DB_USER: ${DB_USER}
+#   DB_PASSWORD: ${DB_PASSWORD}
+#   REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+#   REDIS_PASSWORD: ${REDIS_PASSWORD}
+#   RABBITMQ_HOST: ${RABBITMQ_HOST}
+#   RABBITMQ_PORT: ${RABBITMQ_PORT}
+#   RABBITMQ_USER: ${RABBITMQ_USER}
+#   RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+#   RABBITMQ_VHOST: ${RABBITMQ_VHOST}
+#   CELERY_BROKER_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/${RABBITMQ_VHOST}
+#   CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/1
+
+# x-api-common: &api-common
+#   build:
+#     context: .
+#     dockerfile: Dockerfile
+#     target: runtime
+#   image: 2geda/social-api:${IMAGE_TAG:-latest}
+#   env_file: .env
+#   # These overrides win over anything in `.env`. Containers must talk to
+#   # sibling services by their compose name regardless of how `.env` is
+#   # configured for local-host development outside Docker.
+#   environment:
+#     <<: *api-env
+#   depends_on:
+#     postgres:
+#       condition: service_healthy
+#     redis:
+#       condition: service_healthy
+#     rabbitmq:
+#       condition: service_healthy
+#   restart: unless-stopped
+#   networks:
+#     - backend
+
+# services:
+
+#   # PostgreSQL 
+#   postgres:
+#     image: postgres:18-alpine
+#     container_name: 2geda_postgres
+#     restart: always
+#     environment:
+#       POSTGRES_DB: ${DB_NAME}
+#       POSTGRES_USER: ${DB_USER}
+#       POSTGRES_PASSWORD: ${DB_PASSWORD}
+#       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+#     volumes:
+#       - postgres_data:/var/lib/postgresql
+#     command: postgres -c listen_addresses='*'
+#     ports:
+#       - "${DB_PORT_EXPOSE:-5432}:5432"
+#     networks:
+#       - backend
+#     healthcheck:
+#       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 10
+#       start_period: 20s
+
+#   # Redis
+#   # DB 0 — Django cache + rate limiter
+#   # DB 1 — Celery result backend
+#   # DB 2 — Django Channels backplane (WebSocket pub/sub)
+#   redis:
+#     image: redis:7.2-alpine
+#     container_name: 2geda_redis
+#     restart: unless-stopped
+#     command: >
+#       redis-server
+#         --requirepass ${REDIS_PASSWORD}
+#         --maxmemory 512mb
+#         --maxmemory-policy allkeys-lru
+#         --save 60 1000
+#         --loglevel notice
+#     volumes:
+#       - redis_data:/data
+#     ports:
+#       - "${REDIS_PORT_EXPOSE:-6379}:6379"
+#     networks:
+#       - backend
+#     healthcheck:
+#       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 10
+#       start_period: 10s
+
+#   # RabbitMQ
+#   rabbitmq:
+#     image: rabbitmq:3.13-management-alpine
+#     container_name: 2geda_rabbitmq
+#     restart: unless-stopped
+#     environment:
+#       RABBITMQ_DEFAULT_USER:  ${RABBITMQ_USER}
+#       RABBITMQ_DEFAULT_PASS:  ${RABBITMQ_PASSWORD}
+#       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST}
+#     volumes:
+#       - rabbitmq_data:/var/lib/rabbitmq
+#     ports:
+#       - "${RABBITMQ_PORT_EXPOSE:-5672}:5672"
+#       - "${RABBITMQ_MGMT_PORT_EXPOSE:-15672}:15672"
+#     networks:
+#       - backend
+#     healthcheck:
+#       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+#       interval: 15s
+#       timeout: 10s
+#       retries: 10
+#       start_period: 30s
+      
+#   api:
+#     <<: *api-common
+#     container_name: 2geda_api
+#     entrypoint: ["/app/entrypoint.sh"]
+#     environment:
+#       <<: *api-env
+#       DJANGO_RUN_MODE:        ${DJANGO_RUN_MODE:-dev}
+#       API_BIND:               "0.0.0.0:8000"
+#     volumes:
+#       - .:/app
+#       - static_files:/app/staticfiles
+#       - media_files:/app/mediafiles
+#     ports:
+#       - "${API_PORT_EXPOSE:-8000}:8000"
+#     healthcheck:
+#       test: ["CMD-SHELL", "curl -fsS http://localhost:8000/admin/login/ > /dev/null || exit 1"]
+#       interval: 30s
+#       timeout: 10s
+#       retries: 5
+#       start_period: 40s
+
+#   # Daphne ASGI (WebSockets) 
+#   daphne:
+#     <<: *api-common
+#     container_name: 2geda_daphne
+#     entrypoint: ["/app/entrypoint-daphne.sh"]
+#     depends_on:
+#       postgres:
+#         condition: service_healthy
+#       redis:
+#         condition: service_healthy
+#       rabbitmq:
+#         condition: service_healthy
+#       api:
+#         condition: service_started
+#     environment:
+#       <<: *api-env
+#       DAPHNE_BIND:            "0.0.0.0"
+#       DAPHNE_PORT:            "8001"
+#       DAPHNE_LOG_LEVEL:       ${DAPHNE_LOG_LEVEL:-INFO}
+#     volumes:
+#       - .:/app
+#     ports:
+#       - "${DAPHNE_PORT_EXPOSE:-8001}:8001"
+#     healthcheck:
+#       test:
+#         - "CMD-SHELL"
+#         - "python -c \"import socket;s=socket.socket();s.settimeout(3);s.connect(('localhost',8001));s.close()\""
+#       interval: 30s
+#       timeout: 10s
+#       retries: 5
+#       start_period: 30s
+
+#   # --- Celery Worker -------------------------------------------------------
+#   worker:
+#     <<: *api-common
+#     container_name: 2geda_worker
+#     entrypoint: ["/app/entrypoint-worker.sh"]
+#     environment:
+#       <<: *api-env
+#       CELERY_QUEUES:          ${CELERY_QUEUES:-default,otp,notifications,media}
+#       CELERY_CONCURRENCY:     ${CELERY_CONCURRENCY:-4}
+#       CELERY_LOG_LEVEL:       ${CELERY_LOG_LEVEL:-info}
+#       CELERY_HOSTNAME:        worker@%h
+#     volumes:
+#       - .:/app
+#       - media_files:/app/mediafiles
+#     healthcheck:
+#       test: ["CMD", "celery", "-A", "core", "inspect", "ping", "--timeout=10"]
+#       interval: 30s
+#       timeout: 15s
+#       retries: 3
+#       start_period: 30s
+
+#   # --- Celery Beat (singleton) ---------------------------------------------
+#   beat:
+#     <<: *api-common
+#     container_name: 2geda_beat
+#     entrypoint: ["/app/entrypoint-beat.sh"]
+#     environment:
+#       <<: *api-env
+#       CELERY_LOG_LEVEL:       ${CELERY_LOG_LEVEL:-info}
+#       CELERY_BEAT_SCHEDULER:  django_celery_beat.schedulers:DatabaseScheduler
+#     volumes:
+#       - .:/app
+#     deploy:
+#       replicas: 1
+
+#   # --- Flower (Celery monitoring) ------------------------------------------
+#   # flower:
+#   #   <<: *api-common
+#   #   container_name: 2geda_flower
+#   #   entrypoint: []
+#   #   command: >
+#   #     celery -A core flower
+#   #       --port=5555
+#   #       --basic_auth=${FLOWER_USER:-admin}:${FLOWER_PASSWORD:-flowerpassword}
+#   #       --persistent=true
+#   #       --db=/tmp/flower.db
+#   #       --max_tasks=10000
+#   #   ports:
+#   #     - "${FLOWER_PORT_EXPOSE:-5555}:5555"
+#   #   healthcheck:
+#   #     test: ["CMD-SHELL", "curl -fsS http://localhost:5555/ > /dev/null || exit 1"]
+#   #     interval: 30s
+#   #     timeout: 10s
+#   #     retries: 3
+
+# networks:
+#   backend:
+#     driver: bridge
+#     name: 2geda_backend
+
+# volumes:
+#   postgres_data:
+#     name: 2geda_postgres_data
+#   redis_data:
+#     name: 2geda_redis_data
+#   rabbitmq_data:
+#     name: 2geda_rabbitmq_data
+#   static_files:
+#     name: 2geda_static_files
+#   media_files:
+#     name: 2geda_media_files

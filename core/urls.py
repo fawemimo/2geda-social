@@ -19,6 +19,7 @@ from django.urls import include, path, re_path
 from drf_yasg import openapi
 from drf_yasg.views import get_schema_view
 from rest_framework import permissions
+from django.http import JsonResponse
 
 
 schema_view = get_schema_view(
@@ -34,9 +35,12 @@ schema_view = get_schema_view(
     permission_classes=[permissions.AllowAny],
 )
 
+def status_check(request):
+    return JsonResponse({"status": "ok"})
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path("status/", status_check),
     path('api/v2/accounts/', include('accounts.urls', namespace='accounts')),
     path('api/v2/chats/', include('chats.urls', namespace='chats')),
     path('api/docs/swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='swagger-ui'),
