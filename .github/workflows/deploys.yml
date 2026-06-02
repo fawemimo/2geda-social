@@ -3,7 +3,7 @@ name: FaultPilot Django Service Deployment
 on:
   push:
     branches:
-      - main
+      - master
 
 jobs:
   deploy:
