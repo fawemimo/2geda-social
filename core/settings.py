@@ -132,6 +132,11 @@ USE_I18N = True
 
 USE_TZ = True
 
+# added for the swagger
+SWAGGER_SETTINGS = {
+    'USE_SESSION_AUTH': False,  
+    'SECURITY_DEFINITIONS': None,  
+}
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
@@ -148,3 +153,4 @@ try:
         from .prod_settings import *
 except ImportError:
     pass
+
