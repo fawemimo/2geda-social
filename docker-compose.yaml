@@ -59,7 +59,7 @@ services:
     # ports:
     #   - "5432:5432"
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "${DB_USER}"]
+      test: ["CMD", "pg_isready", "-U", "${DB_USER}", "-d", "postgres"]
       interval: 10s
       timeout: 5s
       retries: 5  
