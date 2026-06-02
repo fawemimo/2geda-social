@@ -1,0 +1,27 @@
+name: FaultPilot Django Service Deployment
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy to Remote Server
+    runs-on: ubuntu-latest
+    steps:
+      - name: Execute Remote SSH Command
+        uses: appleboy/ssh-action@v0.1.9
+        with:
+          host: 162.243.162.243
+          username: root
+          key: ${{ secrets.PRIVATE_KEY }}
+          port: 22
+          script: |
+            APP_DIR=/root/2geda-social
+
+            echo "Navigating to application directory..."
+            cd "$APP_DIR" || { echo "Failed to change directory to $APP_DIR"; exit 1; }
+            chmod +x deploy.sh
+            ./deploy.sh
+            echo "Deployment completed successfully."
