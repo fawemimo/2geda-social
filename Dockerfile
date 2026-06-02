@@ -4,9 +4,9 @@ FROM python:3.14-slim
 # Set work directory
 WORKDIR /app
 
-# Install system dependencies (Consolidated layers)
+# Install system dependencies (Updated for Debian Trixie/Python 3.14)
 RUN apt-get update && \
-    apt-get install -y \
+    apt-get install -y --no-install-recommends \
     python3-dev \
     default-libmysqlclient-dev \
     build-essential \
@@ -17,10 +17,10 @@ RUN apt-get update && \
     gcc \
     git \
     libssl-dev \
-    libxml2-dev \
-    libjpeg-dev \
-    zlib1g-dev \
-    netcat-openbsd && \
+    libxml2 \
+    libjpeg62-turbo-dev \
+    zlib1g \
+    netcat-traditional && \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /app/
