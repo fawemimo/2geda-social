@@ -1,5 +1,5 @@
 # 1. Upgraded base image to support Django 6.0+
-FROM python:3.14.2
+FROM python:3.12-slim
 
 # Set work directory
 WORKDIR /app
@@ -26,7 +26,8 @@ RUN apt-get update && \
 COPY requirements.txt /app/
 
 # Install Python dependencies
-RUN pip install --upgrade pip && pip install -r requirements.txt
+# RUN pip install --upgrade pip && pip install -r requirements.txt
+RUN pip install --no-cache-dir --force-reinstall -r requirements.txt
 
 # Copy application files
 COPY . /app/
