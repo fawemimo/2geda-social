@@ -1,5 +1,5 @@
 # 1. Upgraded base image to support Django 6.0+
-FROM python:3.14-slim
+FROM python:3.14.2-slim
 
 # Set work directory
 WORKDIR /app
