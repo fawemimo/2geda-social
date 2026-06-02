@@ -137,7 +137,36 @@ volumes:
   postgres_data:
 
 
-
+  # web:
+  #   build: .
+  #   entrypoint: ./entrypoint.sh
+    # command: >
+    #   sh -c "
+    #     gunicorn TogedaBackend.wsgi:application --bind 0.0.0.0:8000 --workers 2 &
+    #     daphne -b 0.0.0.0 -p 8001 TogedaBackend.asgi:application
+    #   "
+    # # command: >
+    # #   sh -c "gunicorn TogedaBackend.wsgi:application --bind 0.0.0.0:8000 --workers 2 && daphne -u /tmp/daphne.sock TogedaBackend.asgi:application"
+    # volumes:
+    #   - .:/app
+    # ports:
+    #   - "8000:8000"
+    #   - "8001:8001"
+    # env_file:
+    #   - ./.env
+    # restart: unless-stopped
+    # environment:  
+    #   POSTGRES_USER: ${DB_USER}
+    #   POSTGRES_PASSWORD: ${DB_PASSWORD}
+    #   POSTGRES_DB: ${DB_NAME}
+    #   POSTGRES_HOST: ${DB_HOST} 
+    #   POSTGRES_PORT: 5432
+    #   CELERY_BROKER_URL: redis://redis:6379/0
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/health"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 5
 
 # name: 2geda_social
 
