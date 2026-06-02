@@ -10,7 +10,7 @@ git pull origin "$BRANCH"
 
 # Build the Docker images
 echo "Building Docker images..."
-if ! docker compose build --no-cache; then
+if ! docker-compose build; then
     echo "Failed to build Docker images."
     exit 1
 fi
