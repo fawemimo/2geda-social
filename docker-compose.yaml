@@ -93,12 +93,6 @@ services:
       timeout: 5s
       retries: 5
 
-  #  Celery Worker
-  worker:
-    <<: *api-common
-    container_name: 2geda_worker
-    entrypoint: ["/app/entrypoint-worker.sh"]
-
   celery:
     build: .
     command: >
@@ -121,12 +115,6 @@ services:
       - .:/app
     restart: always
 
-  #  Celery Beat (singleton) 
-  beat:
-    <<: *api-common
-    container_name: 2geda_beat
-    entrypoint: ["/app/entrypoint-beat.sh"]
-
   celery-beat:
     build: .
     command: celery -A core beat --loglevel=info
@@ -139,35 +127,8 @@ services:
       - .env
     volumes:
       - .:/app
-    deploy:
-      replicas: 1
-
-  #  Flower (Celery monitoring) 
-  # flower:
-  #   <<: *api-common
-  #   container_name: 2geda_flower
-  #   entrypoint: []
-  #   command: >
-  #     celery -A core flower
-  #       --port=5555
-  #       --basic_auth=${FLOWER_USER:-admin}:${FLOWER_PASSWORD:-flowerpassword}
-  #       --persistent=true
-  #       --db=/tmp/flower.db
-  #       --max_tasks=10000
-  #   ports:
-  #     - "${FLOWER_PORT_EXPOSE:-5555}:5555"
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "curl -fsS http://localhost:5555/ > /dev/null || exit 1"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
-
-networks:
-  backend:
-    driver: bridge
-    name: 2geda_backend
-
     restart: always
+
 volumes:
   redis_data:
     driver: local
