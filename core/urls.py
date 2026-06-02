@@ -43,6 +43,8 @@ urlpatterns = [
     path("status/", status_check),
     path('api/v2/accounts/', include('accounts.urls', namespace='accounts')),
     path('api/v2/chats/', include('chats.urls', namespace='chats')),
-    path('api/docs/swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='swagger-ui'),
-    path('api/docs/redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='redoc'),
+    path('api/v2/docs/swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='swagger-ui'),
+    path('api/v2/docs/redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='redoc'),
+    # path('api/docs/swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='swagger-ui'),
+    # path('api/docs/redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='redoc'),
 ]
