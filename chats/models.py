@@ -63,10 +63,10 @@ class Conversation(BaseModel):
         ]
 
     def __str__(self) -> str:
-        if self.conversation_type == ConversationType.GROUP:
+        if self.conversation_type == ConversationType.GROUP.value:
             return f"Group({self.name or self.id})"
         return f"Direct({self.id})"
-# Returns the Channels layer group name for this conversation.
+    # Returns the Channels layer group name for this conversation.
 
     def get_channel_group_name(self) -> str:
         return f"chat_{self.id}"

@@ -50,6 +50,12 @@ CELERY_TASK_EAGER_PROPAGATES = True
 CELERY_BROKER_URL = "memory://"
 CELERY_RESULT_BACKEND = "cache+memory://"
 
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+    },
+}
+
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
 # Stop the test boot from failing on app-cross FKs to optional apps.
@@ -76,6 +82,15 @@ SIMPLE_JWT = {
 REST_FRAMEWORK = {
     **globals().get("REST_FRAMEWORK", {}),
     "DEFAULT_THROTTLE_CLASSES": (),
-    "DEFAULT_THROTTLE_RATES": {},
+    "DEFAULT_THROTTLE_RATES": {
+        "anon_burst": "60/minute",
+        "anon_sustained": "1000/day",
+        "user_burst": "240/minute",
+        "user_sustained": "20000/day",
+        "otp_request": "10/minute",
+        "otp_verify": "10/minute",
+        "login": "20/minute",
+        "registration": "10/minute",
+    },
 }
 

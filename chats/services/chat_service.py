@@ -48,7 +48,7 @@ class ChatService:
 
         conv = Conversation.objects.create(
             conversation_type=ConversationType.DIRECT.value,
-            created_by__id=user_a_id,
+            created_by_id=user_a_id,
         )
         ConversationMember.objects.bulk_create([
             ConversationMember(conversation=conv, user_id=user_a_id, role=MemberRole.MEMBER.value),

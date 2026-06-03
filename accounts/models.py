@@ -252,7 +252,9 @@ class UserDevice(BaseModel):
         """Soft-delete = logout from this device."""
         self.push_token = ""
         self.is_trusted = False
-        self.delete()  # Uses SoftDeleteMixin.delete()
+        self.is_deleted = True
+        self.deleted_at = timezone.now()
+        self.save(update_fields=["push_token", "is_trusted", "is_deleted", "deleted_at"])
 
     def __str__(self) -> str:
         return f"{self.name or self.platform} ({self.user_id})"
