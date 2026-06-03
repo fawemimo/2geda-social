@@ -126,6 +126,8 @@ class RegistrationService:
         self._store.save(payload, ttl=self._ttl)
         self._store.start_cooldown(email, ttl=self._cooldown)
 
+        logger.info(f"EMAIL OTP CODE IS {code} for email={email}")  # TODO: Remove in production!
+        
         from accounts.tasks import send_otp_email as _send_otp_email
         _send_otp_email.delay(
             to=email,

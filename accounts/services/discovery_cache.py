@@ -93,6 +93,18 @@ class DiscoveryCache:
         except Exception as exc:
             logger.warning("Redis meta delete failed: %s", exc)
 
+    @classmethod
+    def geo_has_data(cls) -> bool:
+        """Check if the geoset has any members at all."""
+        r = cls._redis()
+        if r is None:
+            return False
+        try:
+            return r.zcard(cls._GEO_KEY) > 0
+        except Exception as exc:
+            logger.warning("Redis ZCARD failed: %s", exc)
+            return False
+
     # ── georadius query ──────────────────────────────────────────
 
     @classmethod

@@ -145,6 +145,7 @@ SWAGGER_SETTINGS = {
 STATIC_URL = "/static/"
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 
+DEPLOYMENT_MODE = os.getenv("DEPLOYMENT_MODE", "DEV")
 
 USE_SETTINGS_FILE = os.getenv("USE_SETTINGS_FILE", "CUSTOM")
 

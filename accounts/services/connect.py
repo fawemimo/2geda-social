@@ -62,6 +62,9 @@ class ConnectService:
             lat, lon, max_distance, exclude=connected | {uid},
         )
 
+        if not nearby and not DiscoveryCache.geo_has_data():
+            return self._get_discoverable_users_pg(current_user, filters)
+
         results = []
         for n_uid, dist in nearby:
             n_meta = DiscoveryCache.get_metadata(n_uid)
