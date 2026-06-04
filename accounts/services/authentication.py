@@ -56,27 +56,40 @@ class AuthenticationService:
     def login(
         self,
         *,
-        email: str,
+        email: str | None = None,
+        username: str | None = None,
+        phone_number: str | None = None,
         password: str,
         device_payload: dict | None = None,
         ip_address: str | None = None,
     ) -> LoginResult:
-        email = email.strip().lower() if email else ""
-        if not email or not password:
-            raise ValidationError("Email and password are required.", code="credentials_required")
+        # Build the identifier for lockout/rate-limiting (case-insensitive for email).
+        identifier = (email or username or phone_number or "").strip()
+        if email:
+            identifier = email.strip().lower()
 
-        lockout_key = f"login:{email}"
+        if not identifier or not password:
+            raise ValidationError("Identifier and password are required.", code="credentials_required")
+
+        lockout_key = f"login:{identifier}"
         if self._rate_limiter.cooldown(lockout_key, ttl=timedelta(seconds=self._lockout_seconds)):
             raise AccountLockedError()
 
-        user = authenticate(email=email, password=password)
+        # Resolve the User model instance by any of the three identifiers.
+        resolved_user = self._resolve_user(email=email, username=username, phone_number=phone_number)
+        if resolved_user is not None:
+            # authenticate requires the email because USERNAME_FIELD = "email"
+            user = authenticate(email=resolved_user.email, password=password)
+        else:
+            user = None
+
         if user is None:
             allowed, count = self._rate_limiter.hit(
                 lockout_key,
                 limit=self._max_failed,
                 window=timedelta(seconds=self._lockout_seconds),
             )
-            logger.info("Failed login email=%s attempt=%s", email, count)
+            logger.info("Failed login identifier=%s attempt=%s", identifier, count)
             if not allowed:
                 self._rate_limiter.start_cooldown(
                     lockout_key, ttl=timedelta(seconds=self._lockout_seconds)
@@ -120,11 +133,28 @@ class AuthenticationService:
     #  helpers
 
     @staticmethod
-    def _get_user_by_email(email: str) -> User:
-        try:
-            return User.objects.get(email=email.strip().lower())
-        except User.DoesNotExist as exc:
-            raise NotFoundError("No account found for this email.", code="user_not_found") from exc
+    def _resolve_user(
+        *,
+        email: str | None = None,
+        username: str | None = None,
+        phone_number: str | None = None,
+    ) -> User | None:
+        if email:
+            try:
+                return User.objects.get(email=email.strip().lower())
+            except User.DoesNotExist:
+                return None
+        if username:
+            try:
+                return User.objects.get(username=username.strip())
+            except User.DoesNotExist:
+                return None
+        if phone_number:
+            try:
+                return User.objects.get(phone_number=phone_number.strip())
+            except User.DoesNotExist:
+                return None
+        return None
 
     def _register_or_update_device(
         self,

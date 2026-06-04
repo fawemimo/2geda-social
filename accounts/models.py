@@ -378,12 +378,23 @@ class UserProfile(BaseModel):
     )
  
     # ---- Display info ----
+    first_name = models.CharField(max_length=30, blank=True, null=True)
+    last_name = models.CharField(max_length=30, blank=True, null=True)
     display_name = models.CharField(max_length=80, blank=True)
     bio = models.TextField(max_length=500, blank=True)
     website = models.URLField(blank=True)
+    work = models.CharField(max_length=100, blank=True, null=True)
+    current_city = models.CharField(max_length=50, blank=True, null=True)
     date_of_birth = models.DateField(null=True, blank=True)
  
     # ---- Media (FK to media.Media, set via string ref to avoid circular import) ----
+    display_photo = models.ForeignKey(
+        "medias.Media",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="profile_display_photos",
+    )
     avatar = models.ForeignKey(
         "medias.Media",
         null=True,

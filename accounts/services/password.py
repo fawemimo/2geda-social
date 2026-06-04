@@ -36,46 +36,62 @@ class PasswordService:
 
 # Sends a reset OTP. Returns None when no user matches — callers
     @transaction.atomic
-    def request_reset(self, *, email: str, ip_address: str | None = None) -> ResetRequestResult | None:
-        normalized = email.strip().lower() if email else ""
-        if not normalized:
-            raise ValidationError("Email is required.", code="email_required")
+    def request_reset(
+        self,
+        *,
+        email: str | None = None,
+        phone_number: str | None = None,
+        ip_address: str | None = None,
+    ) -> ResetRequestResult | None:
+        identifier, user, channel = self._resolve_identifier(
+            email=email, phone_number=phone_number
+        )
 
-        try:
-            user = User.objects.get(email=normalized)
-        except User.DoesNotExist:
+        if user is None:
             return None
 
         issued = self._otp.issue(
             user=user,
             purpose=OTPPurpose.PASSWORD_RESET.value,
-            delivery_address=normalized,
-            channel=OTPChannel.EMAIL.value,
+            delivery_address=identifier,
+            channel=channel,
             ip_address=ip_address,
         )
 
-        from accounts import tasks
+        from accounts.tasks import send_otp_email as _send_otp_email
+        from accounts.tasks import send_otp_sms as _send_otp_sms
 
-        transaction.on_commit(
-            lambda: tasks.send_otp_email.delay(
-                to=normalized,
+        if channel == OTPChannel.EMAIL.value:
+            _send_otp_email.delay(
+                to=identifier,
                 code=issued.code,
                 purpose=issued.purpose,
                 username=user.username,
             )
-        )
+        elif channel == OTPChannel.SMS.value:
+            _send_otp_sms.delay(
+                to=identifier,
+                code=issued.code,
+                purpose=issued.purpose,
+            )
         return ResetRequestResult(user_id=str(user.pk), expires_at=issued.expires_at)
 
     @transaction.atomic
-    def confirm_reset(self, *, email: str, code: str, new_password: str) -> None:
-        normalized = email.strip().lower() if email else ""
-        if not normalized or not code or not new_password:
-            raise ValidationError("Email, code and new password are required.", code="missing_fields")
+    def confirm_reset(
+        self,
+        *,
+        email: str | None = None,
+        phone_number: str | None = None,
+        code: str,
+        new_password: str,
+    ) -> None:
+        identifier, user, _ = self._resolve_identifier(email=email, phone_number=phone_number)
 
-        try:
-            user = User.objects.get(email=normalized)
-        except User.DoesNotExist as exc:
-            raise NotFoundError("No account found for this email.", code="user_not_found") from exc
+        if not identifier or not code or not new_password:
+            raise ValidationError("Identifier, code and new password are required.", code="missing_fields")
+
+        if user is None:
+            raise NotFoundError("No account found for this identifier.", code="user_not_found")
 
         self._otp.verify(user=user, purpose=OTPPurpose.PASSWORD_RESET.value, code=code)
         self._set_password(user, new_password)
@@ -98,4 +114,28 @@ class PasswordService:
             raise ValidationError("; ".join(exc.messages), code="password_weak") from exc
         user.set_password(new_password)
         user.save(update_fields=["password"])
+
+    @staticmethod
+    def _resolve_identifier(
+        *,
+        email: str | None = None,
+        phone_number: str | None = None,
+    ) -> tuple[str | None, User | None, str | None]:
+        if email:
+            identifier = email.strip().lower()
+            try:
+                user = User.objects.get(email=identifier)
+            except User.DoesNotExist:
+                user = None
+            return identifier, user, OTPChannel.EMAIL.value
+
+        if phone_number:
+            identifier = phone_number.strip()
+            try:
+                user = User.objects.get(phone_number=identifier)
+            except User.DoesNotExist:
+                user = None
+            return identifier, user, OTPChannel.SMS.value
+
+        return None, None, None
 

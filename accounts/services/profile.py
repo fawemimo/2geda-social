@@ -19,9 +19,11 @@ UPDATABLE_PROFILE_FIELDS = {
     "bio",
     "website",
     "date_of_birth",
-    "is_private",
-    "avatar",
-    "cover_photo",
+    "first_name",
+    "last_name",
+    "work",
+    "current_city",
+    "is_private"
 }
 
 

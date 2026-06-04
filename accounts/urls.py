@@ -29,6 +29,7 @@ urlpatterns = [
     path("me/profile/", views.ProfileView.as_view(), name="profile"),
     path("me/profile/avatar/", views.ProfileAvatarUpdateView.as_view(), name="profile-avatar"),
     path("me/profile/cover/", views.ProfileCoverUpdateView.as_view(), name="profile-cover"),
+    path("me/profile/display-photo/", views.ProfileDisplayPhotoUpdateView.as_view(), name="profile-display-photo"),
 
     # devices
     path("me/devices/", views.DeviceListCreateView.as_view(), name="devices"),

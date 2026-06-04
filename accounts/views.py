@@ -227,7 +227,9 @@ class LoginView(APIView):
         data = LoginSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         result = AuthenticationService().login(
-            email=data.validated_data["email"],
+            email=data.validated_data.get("email"),
+            username=data.validated_data.get("username"),
+            phone_number=data.validated_data.get("phone_number"),
             password=data.validated_data["password"],
             device_payload=data.validated_data.get("device"),
             ip_address=_client_ip(request),
@@ -282,7 +284,6 @@ class TokenRefreshView(APIView):
 
 #  password reset / change 
 
-
 class PasswordResetRequestView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [OTPRequestThrottle]
@@ -293,11 +294,13 @@ class PasswordResetRequestView(APIView):
         data = PasswordResetRequestSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         PasswordService().request_reset(
-            email=data.validated_data["email"], ip_address=_client_ip(request)
+            email=data.validated_data.get("email"),
+            phone_number=data.validated_data.get("phone_number"),
+            ip_address=_client_ip(request),
         )
-        # Deliberately uniform response: don't leak whether the email exists.
+        # Deliberately uniform response: don't leak whether the identifier is registered.
         return APIResponse.success(
-            message="If that email is registered, an OTP has been sent.",
+            message="If that email or phone number is registered, an OTP has been sent.",
             data={},
         )
 
@@ -311,7 +314,12 @@ class PasswordResetConfirmView(APIView):
     def post(self, request):
         data = PasswordResetConfirmSerializer(data=request.data)
         data.is_valid(raise_exception=True)
-        PasswordService().confirm_reset(**data.validated_data)
+        PasswordService().confirm_reset(
+            email=data.validated_data.get("email"),
+            phone_number=data.validated_data.get("phone_number"),
+            code=data.validated_data["code"],
+            new_password=data.validated_data["new_password"],
+        )
         return APIResponse.success(
             message="Password has been reset. Please log in with your new password.",
             data={},
@@ -475,6 +483,18 @@ class ProfileCoverUpdateView(APIView):
     @swagger_auto_schema(responses={200: "Cover photo removed"})
     def delete(self, request):
         return _delete_profile_image(request, "cover_photo")
+
+
+class ProfileDisplayPhotoUpdateView(APIView):
+    permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser]
+    @swagger_auto_schema(request_body=ProfileImageUploadSerializer)
+    def put(self, request):
+        return _dispatch_profile_image_upload(request, "display_photo")
+
+    @swagger_auto_schema(responses={200: "Display photo removed"})
+    def delete(self, request):
+        return _delete_profile_image(request, "display_photo")
 
 
 class DeviceListCreateView(APIView):

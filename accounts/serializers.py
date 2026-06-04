@@ -58,9 +58,18 @@ class ResendOTPSerializer(serializers.Serializer):
 
 
 class LoginSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+    email = serializers.EmailField(required=False, allow_blank=True)
+    username = serializers.CharField(max_length=40, required=False, allow_blank=True)
+    phone_number = serializers.CharField(max_length=20, required=False, allow_blank=True)
     password = serializers.CharField(write_only=True)
     device = DevicePayloadSerializer(required=False)
+
+    def validate(self, attrs):
+        if not attrs.get("email") and not attrs.get("username") and not attrs.get("phone_number"):
+            raise serializers.ValidationError(
+                "Either email, username, or phone_number is required.", code="identifier_required"
+            )
+        return attrs
 
 
 class LogoutSerializer(serializers.Serializer):
@@ -77,13 +86,29 @@ class TokenPairSerializer(serializers.Serializer):
 
 
 class PasswordResetRequestSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+    email = serializers.EmailField(required=False, allow_blank=True)
+    phone_number = serializers.CharField(max_length=20, required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        if not attrs.get("email") and not attrs.get("phone_number"):
+            raise serializers.ValidationError(
+                "Either email or phone_number is required.", code="identifier_required"
+            )
+        return attrs
 
 
 class PasswordResetConfirmSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+    email = serializers.EmailField(required=False, allow_blank=True)
+    phone_number = serializers.CharField(max_length=20, required=False, allow_blank=True)
     code = serializers.CharField(min_length=4, max_length=10)
     new_password = serializers.CharField(min_length=8, write_only=True)
+
+    def validate(self, attrs):
+        if not attrs.get("email") and not attrs.get("phone_number"):
+            raise serializers.ValidationError(
+                "Either email or phone_number is required.", code="identifier_required"
+            )
+        return attrs
 
 
 class PasswordChangeSerializer(serializers.Serializer):
@@ -96,11 +121,15 @@ class ProfileImageUploadSerializer(serializers.Serializer):
 
 
 class ProfileUpdateSerializer(serializers.Serializer):
+    first_name = serializers.CharField(max_length=30, required=False, allow_blank=True)
+    last_name = serializers.CharField(max_length=30, required=False, allow_blank=True)
     username = serializers.CharField(max_length=40, required=False)
     phone_number = serializers.CharField(max_length=20, required=False, allow_blank=True)
     display_name = serializers.CharField(max_length=80, required=False, allow_blank=True)
     bio = serializers.CharField(max_length=500, required=False, allow_blank=True)
     website = serializers.URLField(required=False, allow_blank=True)
+    work = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    current_city = serializers.CharField(max_length=50, required=False, allow_blank=True)
     date_of_birth = serializers.DateField(required=False)
     is_private = serializers.BooleanField(required=False)
 

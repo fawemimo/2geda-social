@@ -355,34 +355,97 @@ class TestResendOTPView:
 
 class TestLoginView:
     url = f"{API_ROOT}auth/login/"
+    mock_result = MagicMock(
+        user_id="u1", access="access-token", access_expires_at=1234567890,
+        refresh="refresh-token", refresh_expires_at=1234567890,
+        device_id="d1", token_type="Bearer",
+    )
 
     @patch("accounts.views.AuthenticationService.login")
-    def test_login_success(self, mock_login):
-        mock_login.return_value = MagicMock(
-            user_id="u1", access="access-token", access_expires_at=1234567890,
-            refresh="refresh-token", refresh_expires_at=1234567890,
-            device_id="d1", token_type="Bearer",
-        )
+    def test_login_with_email(self, mock_login):
+        mock_login.return_value = self.mock_result
         resp = APIClient().post(self.url, {
             "email": "a@b.com", "password": "password123",
         }, format="json")
         assert resp.status_code == 200
         assert resp.data["data"]["token_type"] == "Bearer"
+        mock_login.assert_called_once_with(
+            email="a@b.com", username=None, phone_number=None,
+            password="password123", device_payload=None, ip_address=ANY,
+        )
+
+    @patch("accounts.views.AuthenticationService.login")
+    def test_login_with_username(self, mock_login):
+        mock_login.return_value = self.mock_result
+        resp = APIClient().post(self.url, {
+            "username": "alice", "password": "password123",
+        }, format="json")
+        assert resp.status_code == 200
+        mock_login.assert_called_once_with(
+            email=None, username="alice", phone_number=None,
+            password="password123", device_payload=None, ip_address=ANY,
+        )
+
+    @patch("accounts.views.AuthenticationService.login")
+    def test_login_with_phone(self, mock_login):
+        mock_login.return_value = self.mock_result
+        resp = APIClient().post(self.url, {
+            "phone_number": "+2348012345678", "password": "password123",
+        }, format="json")
+        assert resp.status_code == 200
+        mock_login.assert_called_once_with(
+            email=None, username=None, phone_number="+2348012345678",
+            password="password123", device_payload=None, ip_address=ANY,
+        )
 
     @patch("accounts.views.AuthenticationService.login")
     def test_login_with_device(self, mock_login):
-        mock_login.return_value = MagicMock(
-            user_id="u1", access="access-token", access_expires_at=1234567890,
-            refresh="refresh-token", refresh_expires_at=1234567890,
-            device_id="d1", token_type="Bearer",
-        )
+        mock_login.return_value = self.mock_result
         resp = APIClient().post(self.url, {
             "email": "a@b.com", "password": "password123",
             "device": {"platform": "ios", "device_fingerprint": "fp123"},
         }, format="json")
         assert resp.status_code == 200
+        mock_login.assert_called_once_with(
+            email="a@b.com", username=None, phone_number=None,
+            password="password123", device_payload={
+                "platform": "ios", "device_fingerprint": "fp123"},
+            ip_address=ANY,
+        )
 
-    def test_login_missing_fields(self):
+    @patch("accounts.views.AuthenticationService.login")
+    def test_login_auth_error(self, mock_login):
+        from accounts.services.exceptions import AuthenticationError
+        mock_login.side_effect = AuthenticationError()
+        resp = APIClient().post(self.url, {
+            "email": "a@b.com", "password": "wrong",
+        }, format="json")
+        assert resp.status_code == 401
+
+    @patch("accounts.views.AuthenticationService.login")
+    def test_login_account_locked(self, mock_login):
+        from accounts.services.exceptions import AccountLockedError
+        mock_login.side_effect = AccountLockedError()
+        resp = APIClient().post(self.url, {
+            "email": "a@b.com", "password": "password123",
+        }, format="json")
+        assert resp.status_code == 423
+
+    @patch("accounts.views.AuthenticationService.login")
+    def test_login_account_inactive(self, mock_login):
+        from accounts.services.exceptions import AccountInactiveError
+        mock_login.side_effect = AccountInactiveError()
+        resp = APIClient().post(self.url, {
+            "email": "a@b.com", "password": "password123",
+        }, format="json")
+        assert resp.status_code == 403
+
+    def test_login_no_identifier(self):
+        resp = APIClient().post(self.url, {"password": "password123"}, format="json")
+        assert resp.status_code == 400
+        assert "identifier_required" in str(resp.data)
+
+    def test_login_empty_body(self):
         resp = APIClient().post(self.url, {}, format="json")
         assert resp.status_code == 400
 
@@ -445,13 +508,25 @@ class TestPasswordResetRequestView:
     url = f"{API_ROOT}auth/password/reset/"
 
     @patch("accounts.views.PasswordService.request_reset")
-    def test_reset_request_success(self, mock_request):
+    def test_reset_request_with_email(self, mock_request):
         mock_request.return_value = MagicMock()
         resp = APIClient().post(self.url, {"email": "a@b.com"}, format="json")
         assert resp.status_code == 200
-        assert "If that email is registered" in resp.data["message"]
+        assert "If that email or phone number" in resp.data["message"]
+        mock_request.assert_called_once_with(
+            email="a@b.com", phone_number=None, ip_address=ANY,
+        )
 
-    def test_reset_request_missing_email(self):
+    @patch("accounts.views.PasswordService.request_reset")
+    def test_reset_request_with_phone(self, mock_request):
+        mock_request.return_value = MagicMock()
+        resp = APIClient().post(self.url, {"phone_number": "+2348012345678"}, format="json")
+        assert resp.status_code == 200
+        mock_request.assert_called_once_with(
+            email=None, phone_number="+2348012345678", ip_address=ANY,
+        )
+
+    def test_reset_request_no_identifier(self):
         resp = APIClient().post(self.url, {}, format="json")
         assert resp.status_code == 400
 
@@ -461,13 +536,32 @@ class TestPasswordResetConfirmView:
     url = f"{API_ROOT}auth/password/reset/confirm/"
 
     @patch("accounts.views.PasswordService.confirm_reset")
-    def test_confirm_success(self, mock_confirm):
+    def test_confirm_with_email(self, mock_confirm):
         resp = APIClient().post(self.url, {
             "email": "a@b.com", "code": "123456", "new_password": "NewStr0ng!",
         }, format="json")
         assert resp.status_code == 200
+        mock_confirm.assert_called_once_with(
+            email="a@b.com", phone_number=None,
+            code="123456", new_password="NewStr0ng!",
+        )
 
-    def test_confirm_missing_fields(self):
+    @patch("accounts.views.PasswordService.confirm_reset")
+    def test_confirm_with_phone(self, mock_confirm):
+        resp = APIClient().post(self.url, {
+            "phone_number": "+2348012345678", "code": "123456", "new_password": "NewStr0ng!",
+        }, format="json")
+        assert resp.status_code == 200
+        mock_confirm.assert_called_once_with(
+            email=None, phone_number="+2348012345678",
+            code="123456", new_password="NewStr0ng!",
+        )
+
+    def test_confirm_no_identifier(self):
+        resp = APIClient().post(self.url, {"code": "123456", "new_password": "NewStr0ng!"}, format="json")
+        assert resp.status_code == 400
+
+    def test_confirm_empty_body(self):
         resp = APIClient().post(self.url, {}, format="json")
         assert resp.status_code == 400
 
