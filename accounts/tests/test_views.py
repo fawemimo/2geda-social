@@ -978,12 +978,297 @@ class TestUserLocationUpdateView:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  UserListView
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestUserListView:
+    url = f"{API_ROOT}users/"
+
+    def test_get_unauthenticated(self):
+        resp = APIClient().get(self.url)
+        assert resp.status_code == 401
+
+    def test_get_returns_active_users(self):
+        viewer = User.objects.create_user(
+            email="v@t.com", username="viewer", password="pass", is_active=True,
+        )
+        client = APIClient()
+        client.force_authenticate(user=viewer)
+        resp = client.get(self.url)
+        assert resp.status_code == 200
+        assert resp.data["status"] is True
+        usernames = {u["username"] for u in resp.data["data"]}
+        assert "viewer" in usernames
+
+    def test_get_excludes_inactive_and_deleted(self):
+        viewer = User.objects.create_user(
+            email="v@t.com", username="viewer", password="pass", is_active=True,
+        )
+        User.objects.create_user(
+            email="u1@t.com", username="activeuser", password="pass", is_active=True,
+        )
+        User.objects.create_user(
+            email="u2@t.com", username="inactiveuser", password="pass", is_active=False,
+        )
+        deleted = User.objects.create_user(
+            email="u3@t.com", username="deleteduser", password="pass", is_active=True,
+        )
+        deleted.is_deleted = True
+        deleted.save()
+
+        client = APIClient()
+        client.force_authenticate(user=viewer)
+        resp = client.get(self.url)
+        usernames = {u["username"] for u in resp.data["data"]}
+        assert "activeuser" in usernames
+        assert "inactiveuser" not in usernames
+        assert "deleteduser" not in usernames
+
+    def test_includes_profile_fields(self):
+        viewer = User.objects.create_user(
+            email="v@t.com", username="viewer", password="pass", is_active=True,
+        )
+        user = User.objects.create_user(
+            email="u@t.com", username="johndoe", password="pass", is_active=True,
+        )
+        UserProfile.objects.update_or_create(
+            user=user, defaults={"display_name": "John Doe", "first_name": "John", "last_name": "Doe", "current_city": "Berlin"},
+        )
+
+        client = APIClient()
+        client.force_authenticate(user=viewer)
+        resp = client.get(self.url)
+        data = next(u for u in resp.data["data"] if u["username"] == "johndoe")
+        assert data["display_name"] == "John Doe"
+        assert data["first_name"] == "John"
+        assert data["last_name"] == "Doe"
+        assert data["current_city"] == "Berlin"
+        assert data["avatar"] is None
+        assert data["is_verified"] is False
+
+    def test_search_username_icontains(self):
+        viewer = User.objects.create_user(
+            email="v@t.com", username="viewer", password="pass", is_active=True,
+        )
+        User.objects.create_user(
+            email="a@t.com", username="alpha", password="pass", is_active=True,
+        )
+        User.objects.create_user(
+            email="b@t.com", username="beta", password="pass", is_active=True,
+        )
+        User.objects.create_user(
+            email="c@t.com", username="gamma", password="pass", is_active=True,
+        )
+
+        client = APIClient()
+        client.force_authenticate(user=viewer)
+        resp = client.get(self.url, {"username": "alp"})
+        assert resp.status_code == 200
+        usernames = {u["username"] for u in resp.data["data"]}
+        assert "alpha" in usernames
+        assert "beta" not in usernames
+
+    def test_search_email_icontains(self):
+        viewer = User.objects.create_user(
+            email="v@t.com", username="viewer", password="pass", is_active=True,
+        )
+        User.objects.create_user(
+            email="john@example.com", username="john", password="pass", is_active=True,
+        )
+        User.objects.create_user(
+            email="jane@example.org", username="jane", password="pass", is_active=True,
+        )
+
+        client = APIClient()
+        client.force_authenticate(user=viewer)
+        resp = client.get(self.url, {"email": "example.com"})
+        usernames = {u["username"] for u in resp.data["data"]}
+        assert "john" in usernames
+        assert "jane" not in usernames
+
+    def test_search_display_name_icontains(self):
+        viewer = User.objects.create_user(
+            email="v@t.com", username="viewer", password="pass", is_active=True,
+        )
+        u1 = User.objects.create_user(
+            email="a@t.com", username="userone", password="pass", is_active=True,
+        )
+        u2 = User.objects.create_user(
+            email="b@t.com", username="usertwo", password="pass", is_active=True,
+        )
+        UserProfile.objects.update_or_create(user=u1, defaults={"display_name": "Alice Wonderland"})
+        UserProfile.objects.update_or_create(user=u2, defaults={"display_name": "Bob Builder"})
+
+        client = APIClient()
+        client.force_authenticate(user=viewer)
+        resp = client.get(self.url, {"display_name": "wonder"})
+        usernames = {u["username"] for u in resp.data["data"]}
+        assert "userone" in usernames
+        assert "usertwo" not in usernames
+
+    def test_search_first_name_icontains(self):
+        viewer = User.objects.create_user(
+            email="v@t.com", username="viewer", password="pass", is_active=True,
+        )
+        u1 = User.objects.create_user(
+            email="a@t.com", username="alice", password="pass", is_active=True,
+        )
+        u2 = User.objects.create_user(
+            email="b@t.com", username="bob", password="pass", is_active=True,
+        )
+        UserProfile.objects.update_or_create(user=u1, defaults={"first_name": "Alice"})
+        UserProfile.objects.update_or_create(user=u2, defaults={"first_name": "Benjamin"})
+
+        client = APIClient()
+        client.force_authenticate(user=viewer)
+        resp = client.get(self.url, {"first_name": "ben"})
+        usernames = {u["username"] for u in resp.data["data"]}
+        assert "bob" in usernames
+        assert "alice" not in usernames
+
+    def test_search_last_name_icontains(self):
+        viewer = User.objects.create_user(
+            email="v@t.com", username="viewer", password="pass", is_active=True,
+        )
+        u1 = User.objects.create_user(
+            email="a@t.com", username="alice", password="pass", is_active=True,
+        )
+        u2 = User.objects.create_user(
+            email="b@t.com", username="bob", password="pass", is_active=True,
+        )
+        UserProfile.objects.update_or_create(user=u1, defaults={"last_name": "Smith"})
+        UserProfile.objects.update_or_create(user=u2, defaults={"last_name": "Johnson"})
+
+        client = APIClient()
+        client.force_authenticate(user=viewer)
+        resp = client.get(self.url, {"last_name": "smith"})
+        usernames = {u["username"] for u in resp.data["data"]}
+        assert "alice" in usernames
+        assert "bob" not in usernames
+
+    def test_search_city_icontains(self):
+        viewer = User.objects.create_user(
+            email="v@t.com", username="viewer", password="pass", is_active=True,
+        )
+        u1 = User.objects.create_user(
+            email="a@t.com", username="alice", password="pass", is_active=True,
+        )
+        u2 = User.objects.create_user(
+            email="b@t.com", username="bob", password="pass", is_active=True,
+        )
+        UserProfile.objects.update_or_create(user=u1, defaults={"current_city": "New York"})
+        UserProfile.objects.update_or_create(user=u2, defaults={"current_city": "Los Angeles"})
+
+        client = APIClient()
+        client.force_authenticate(user=viewer)
+        resp = client.get(self.url, {"city": "york"})
+        usernames = {u["username"] for u in resp.data["data"]}
+        assert "alice" in usernames
+        assert "bob" not in usernames
+
+    def test_combined_filters(self):
+        viewer = User.objects.create_user(
+            email="v@t.com", username="viewer", password="pass", is_active=True,
+        )
+        u1 = User.objects.create_user(
+            email="a@test.com", username="alice", password="pass", is_active=True,
+        )
+        u2 = User.objects.create_user(
+            email="b@example.com", username="amy", password="pass", is_active=True,
+        )
+        UserProfile.objects.update_or_create(user=u1, defaults={"first_name": "Alice", "current_city": "Paris"})
+        UserProfile.objects.update_or_create(user=u2, defaults={"first_name": "Amy", "current_city": "Paris"})
+
+        client = APIClient()
+        client.force_authenticate(user=viewer)
+        resp = client.get(self.url, {"city": "paris", "first_name": "Al"})
+        usernames = {u["username"] for u in resp.data["data"]}
+        assert "alice" in usernames
+        assert "amy" not in usernames
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  UserDetailView
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestUserDetailView:
+    url_template = f"{API_ROOT}users/{{user_id}}/"
+
+    def test_get_unauthenticated(self):
+        resp = APIClient().get(
+            self.url_template.format(user_id="00000000-0000-0000-0000-000000000001"),
+        )
+        assert resp.status_code == 401
+
+    def test_get_success(self):
+        user = User.objects.create_user(
+            email="u@t.com", username="testuser", password="pass", is_active=True,
+        )
+        UserProfile.objects.update_or_create(user=user, defaults={
+            "display_name": "Test User",
+            "first_name": "Test",
+            "last_name": "User",
+            "bio": "Hello world",
+            "current_city": "New York",
+            "is_verified": True,
+        })
+
+        viewer = User.objects.create_user(
+            email="v@t.com", username="viewer", password="pass", is_active=True,
+        )
+        client = APIClient()
+        client.force_authenticate(user=viewer)
+        resp = client.get(self.url_template.format(user_id=user.id))
+        assert resp.status_code == 200
+        assert resp.data["status"] is True
+        assert resp.data["data"]["id"] == str(user.id)
+        assert resp.data["data"]["username"] == "testuser"
+        assert resp.data["data"]["display_name"] == "Test User"
+        assert resp.data["data"]["first_name"] == "Test"
+        assert resp.data["data"]["last_name"] == "User"
+        assert resp.data["data"]["bio"] == "Hello world"
+        assert resp.data["data"]["current_city"] == "New York"
+        assert resp.data["data"]["is_verified"] is True
+
+    def test_get_not_found(self):
+        viewer = User.objects.create_user(
+            email="v@t.com", username="viewer", password="pass", is_active=True,
+        )
+        client = APIClient()
+        client.force_authenticate(user=viewer)
+        resp = client.get(
+            self.url_template.format(user_id="00000000-0000-0000-0000-000000000001"),
+        )
+        assert resp.status_code == 404
+        assert resp.data["status"] is False
+
+    def test_get_deleted_user_returns_404(self):
+        user = User.objects.create_user(
+            email="u@t.com", username="testuser", password="pass", is_active=True,
+        )
+        user.is_deleted = True
+        user.save()
+
+        viewer = User.objects.create_user(
+            email="v@t.com", username="viewer", password="pass", is_active=True,
+        )
+        client = APIClient()
+        client.force_authenticate(user=viewer)
+        resp = client.get(self.url_template.format(user_id=user.id))
+        assert resp.status_code == 404
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  Parametrized auth-required check for all authenticated-only endpoints
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 class TestAuthRequiredViews:
     auth_endpoints = [
+        ("GET", f"{API_ROOT}users/"),
+        ("GET", f"{API_ROOT}users/00000000-0000-0000-0000-000000000000/"),
         ("GET", f"{API_ROOT}me/"),
         ("GET", f"{API_ROOT}me/profile/"),
         ("PATCH", f"{API_ROOT}me/profile/"),

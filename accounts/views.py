@@ -1,13 +1,21 @@
 from __future__ import annotations
 
 import logging
+from django.core.cache import cache
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.response import Response
 from rest_framework.views import APIView
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema 
 from accounts.models import User
+from accounts.cache import (
+    CACHE_DETAIL_TTL,
+    CACHE_LIST_TTL,
+    make_user_detail_cache_key,
+    make_user_list_cache_key,
+)
 from accounts.serializers import (
     ConnectFilterSerializer,
     ConnectRespondSerializer,
@@ -25,6 +33,8 @@ from accounts.serializers import (
     ResendOTPSerializer,
     TokenRefreshSerializer,
     UserDeviceSerializer,
+    UserDetailSerializer,
+    UserListSerializer,
     UserLocationIngestSerializer,
     UserMeSerializer,
     UserProfileSerializer,
@@ -590,6 +600,87 @@ class DeviceTrustView(APIView):
         return APIResponse.success(
             message="Device marked as trusted.",
             data=UserDeviceSerializer(device).data,
+        )
+
+
+#  user listing & detail 
+
+class UserListView(APIView):
+    # permission_classes = [IsAuthenticated]
+    pagination_message = "Users fetched successfully."
+
+    def get(self, request):
+        cache_key = make_user_list_cache_key(dict(request.query_params.items()))
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(data=cached)
+
+        qs = User.objects.filter(is_active=True, is_deleted=False).select_related(
+            "profile__avatar",
+        ).order_by("-created_at")
+
+        FILTER_MAP = {
+            "username": "username__icontains",
+            "email": "email__icontains",
+            "display_name": "profile__display_name__icontains",
+            "first_name": "profile__first_name__icontains",
+            "last_name": "profile__last_name__icontains",
+            "city": "profile__current_city__icontains",
+        }
+
+        filters = {}
+        for param, lookup in FILTER_MAP.items():
+            val = request.query_params.get(param, "").strip()
+            if val:
+                filters[lookup] = val
+
+        if filters:
+            qs = qs.filter(**filters)
+
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        if page is None:
+            response = APIResponse.success(
+                message="Users fetched successfully.",
+                data=UserListSerializer(qs, many=True).data,
+            )
+        else:
+            serializer = UserListSerializer(page, many=True)
+            response = paginator.get_paginated_response(serializer.data)
+
+        cache.set(cache_key, response.data, timeout=CACHE_LIST_TTL)
+        return response
+
+
+class UserDetailView(APIView):
+    # permission_classes = [IsAuthenticated]
+
+    def get(self, request, user_id):
+        cache_key = make_user_detail_cache_key(str(user_id))
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(data=cached)
+
+        try:
+            user = User.objects.select_related(
+                "profile__avatar", "profile__cover_photo",
+            ).get(pk=user_id, is_active=True, is_deleted=False)
+        except User.DoesNotExist:
+            return APIResponse.error(
+                message="User not found.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        serializer = UserDetailSerializer(user)
+        response = APIResponse.success(
+            message="User fetched successfully.",
+            data=serializer.data,
+        )
+        cache.set(cache_key, response.data, timeout=CACHE_DETAIL_TTL)
+        return response
+        serializer = UserDetailSerializer(user)
+        return APIResponse.success(
+            message="User fetched successfully.",
+            data=serializer.data,
         )
 
 

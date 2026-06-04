@@ -221,3 +221,54 @@ class UserLocationIngestSerializer(serializers.Serializer):
     latitude = serializers.DecimalField(max_digits=9, decimal_places=6, required=True)
     longitude = serializers.DecimalField(max_digits=9, decimal_places=6, required=True)
 
+
+class UserListSerializer(serializers.ModelSerializer):
+    display_name = serializers.CharField(source="profile.display_name", read_only=True, default="")
+    first_name = serializers.CharField(source="profile.first_name", read_only=True, default="")
+    last_name = serializers.CharField(source="profile.last_name", read_only=True, default="")
+    current_city = serializers.CharField(source="profile.current_city", read_only=True, default="")
+    avatar = serializers.CharField(source="profile.avatar.cdn_url", read_only=True, default=None)
+    is_verified = serializers.BooleanField(source="profile.is_verified", read_only=True, default=False)
+
+    class Meta:
+        model = User
+        fields = [
+            "id", "username", "email",
+            "display_name", "first_name", "last_name",
+            "current_city", "avatar", "is_verified",
+        ]
+
+
+class UserDetailSerializer(serializers.ModelSerializer):
+    display_name = serializers.CharField(source="profile.display_name", read_only=True, default="")
+    first_name = serializers.CharField(source="profile.first_name", read_only=True, default="")
+    last_name = serializers.CharField(source="profile.last_name", read_only=True, default="")
+    bio = serializers.CharField(source="profile.bio", read_only=True, default="")
+    website = serializers.URLField(source="profile.website", read_only=True, default="")
+    work = serializers.CharField(source="profile.work", read_only=True, default="")
+    current_city = serializers.CharField(source="profile.current_city", read_only=True, default="")
+    date_of_birth = serializers.DateField(source="profile.date_of_birth", read_only=True, default=None)
+    is_private = serializers.BooleanField(source="profile.is_private", read_only=True, default=False)
+    is_verified = serializers.BooleanField(source="profile.is_verified", read_only=True, default=False)
+    followers_count = serializers.IntegerField(source="profile.followers_count", read_only=True, default=0)
+    following_count = serializers.IntegerField(source="profile.following_count", read_only=True, default=0)
+    posts_count = serializers.IntegerField(source="profile.posts_count", read_only=True, default=0)
+    avatar = serializers.CharField(source="profile.avatar.cdn_url", read_only=True, default=None)
+    cover_photo = serializers.CharField(source="profile.cover_photo.cdn_url", read_only=True, default=None)
+    is_online = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            "id", "username", "email",
+            "display_name", "first_name", "last_name",
+            "bio", "website", "work", "current_city", "date_of_birth",
+            "is_private", "is_verified",
+            "followers_count", "following_count", "posts_count",
+            "avatar", "cover_photo", "is_online",
+        ]
+
+    def get_is_online(self, obj) -> bool:
+        from django.core.cache import cache
+        return cache.get(f"online_user:{obj.id}") is not None
+

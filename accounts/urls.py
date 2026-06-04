@@ -37,6 +37,10 @@ urlpatterns = [
     path("me/devices/<uuid:device_id>/push-token/", views.DevicePushTokenView.as_view(), name="device-push-token"),
     path("me/devices/<uuid:device_id>/trust/", views.DeviceTrustView.as_view(), name="device-trust"),
 
+    # users
+    path("users/", views.UserListView.as_view(), name="user-list"),
+    path("users/<uuid:user_id>/", views.UserDetailView.as_view(), name="user-detail"),
+
     # connect
     path("location/update/", views.UserLocationUpdateView.as_view(), name="location-update"),
     path("connect/discover/", views.ConnectDiscoveryView.as_view(), name="connect-discover"),
