@@ -19,6 +19,7 @@ class OTPPurpose(Enum):
 class OTPChannel(Enum):
     SMS = "sms"
     EMAIL = "email"
+    WHATSAPP = "whatsapp"
     TOTP = "totp"
 
     @classmethod

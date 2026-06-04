@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from asyncio import tasks
 import logging
 import re
 from dataclasses import dataclass
@@ -40,11 +39,24 @@ logger = logging.getLogger(__name__)
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,40}$")
 
 
+def _domain_has_mx(domain: str) -> bool:
+    import dns.exception
+    import dns.resolver
+    try:
+        answers = dns.resolver.resolve(domain, "MX")
+        return len(answers) > 0
+    except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+        return False
+    except (dns.exception.Timeout, dns.resolver.LifetimeTimeout):
+        return True
+
+
 # Returned from `start_registration()` — no User created yet.
 @dataclass(frozen=True, slots=True)
 class RegistrationDraftResult:
 
-    email: str
+    email: str | None
+    phone_number: str | None
     otp_expires_at: object
     cooldown_until: object
 
@@ -52,7 +64,8 @@ class RegistrationDraftResult:
 @dataclass(frozen=True, slots=True)
 class RegistrationCompleteResult:
     user_id: str
-    email: str
+    email: str | None
+    phone_number: str | None
     access: str
     refresh: str
     expires_at: int
@@ -80,32 +93,35 @@ class RegistrationService:
         self._code_length = getattr(settings, "OTP_CODE_LENGTH", 6)
         self._daily_quota = getattr(settings, "OTP_DAILY_QUOTA", 20)
 
+    def _primary_identifier(self, *, email: str | None, phone_number: str | None) -> str:
+        if email:
+            return email.strip().lower()
+        return phone_number.strip()  # type: ignore[return-value]
+
     def start_registration(
         self,
         *,
-        email: str,
+        email: str | None,
         username: str,
         password: str,
         phone_number: str | None = None,
         referral_code: str | None = None,
         ip_address: str | None = None,
     ) -> RegistrationDraftResult:
-        email = self._normalize_email(email)
+        email = self._normalize_email(email) if email else None
         username = self._normalize_username(username)
         self._validate_password(password)
 
-        # Reject obvious clashes early — without hitting Postgres twice for
-        # the same column we have a unique constraint on.
         self._guard_existing_user(email=email, username=username, phone_number=phone_number)
 
         if referral_code:
-            # Validate the referrer exists; we don't persist it on the
-            # pending payload, just check up-front so registration can fail fast.
             self._resolve_referrer(referral_code)
 
-        if self._store.is_on_cooldown(email):
+        identifier = self._primary_identifier(email=email, phone_number=phone_number)
+
+        if self._store.is_on_cooldown(identifier):
             raise OTPCooldownError()
-        allowed, _ = self._store.hit_quota(email, limit=self._daily_quota)
+        allowed, _ = self._store.hit_quota(identifier, limit=self._daily_quota)
         if not allowed:
             raise OTPQuotaExceededError()
 
@@ -113,7 +129,7 @@ class RegistrationService:
         code_hash = self._hasher.hash(code)
 
         payload = PendingRegistration(
-            email=email,
+            email=email or "",
             username=username,
             phone_number=phone_number or None,
             password_hash=make_password(password),
@@ -123,38 +139,47 @@ class RegistrationService:
             issued_at=timezone.now(),
             ip_address=ip_address,
         )
-        self._store.save(payload, ttl=self._ttl)
-        self._store.start_cooldown(email, ttl=self._cooldown)
+        self._store.save(identifier, payload, ttl=self._ttl)
+        self._store.start_cooldown(identifier, ttl=self._cooldown)
 
-        logger.info(f"EMAIL OTP CODE IS {code} for email={email}")  # TODO: Remove in production!
-        
-        from accounts.tasks import send_otp_email as _send_otp_email
-        _send_otp_email.delay(
-            to=email,
-            code=code,
-            purpose=OTPPurpose.REGISTRATION.value,
-            username=username,
-        )
+        if email:
+            logger.info(f"EMAIL OTP CODE IS {code} for email={email}")
+            from accounts.tasks import send_otp_email as _send_otp_email
+            _send_otp_email.delay(
+                to=email,
+                code=code,
+                purpose=OTPPurpose.REGISTRATION.value,
+                username=username,
+            )
+        else:
+            logger.info(f"WHATSAPP OTP CODE IS {code} for phone={phone_number}")
+            from accounts.tasks import send_otp_whatsapp as _send_otp_whatsapp
+            _send_otp_whatsapp.delay(
+                to=phone_number,
+                code=code,
+                purpose=OTPPurpose.REGISTRATION.value,
+            )
 
         expires_at = payload.issued_at + self._ttl
-        logger.info("Pending registration staged email=%s expires_at=%s", email, expires_at)
+        logger.info("Pending registration staged identifier=%s expires_at=%s", identifier, expires_at)
         return RegistrationDraftResult(
             email=email,
+            phone_number=phone_number,
             otp_expires_at=expires_at,
             cooldown_until=payload.issued_at + self._cooldown,
         )
 
-    def resend_registration_otp(self, *, email: str) -> RegistrationDraftResult:
-        email = self._normalize_email(email)
-        existing = self._store.get(email)
+    def resend_registration_otp(self, *, email: str | None = None, phone_number: str | None = None) -> RegistrationDraftResult:
+        identifier = self._primary_identifier(email=email, phone_number=phone_number)
+        existing = self._store.get(identifier)
         if existing is None:
             raise NotFoundError(
-                "No pending registration found for this email. Start over.",
+                f"No pending registration found for {identifier}. Start over.",
                 code="pending_registration_missing",
             )
-        if self._store.is_on_cooldown(email):
+        if self._store.is_on_cooldown(identifier):
             raise OTPCooldownError()
-        allowed, _ = self._store.hit_quota(email, limit=self._daily_quota)
+        allowed, _ = self._store.hit_quota(identifier, limit=self._daily_quota)
         if not allowed:
             raise OTPQuotaExceededError()
 
@@ -170,18 +195,29 @@ class RegistrationService:
             issued_at=timezone.now(),
             ip_address=existing.ip_address,
         )
-        self._store.replace(refreshed, ttl=self._ttl)
-        self._store.start_cooldown(email, ttl=self._cooldown)
+        self._store.replace(identifier, refreshed, ttl=self._ttl)
+        self._store.start_cooldown(identifier, ttl=self._cooldown)
 
-        tasks.send_otp_email.delay(
-            to=email,
-            code=code,
-            purpose=OTPPurpose.REGISTRATION.value,
-            username=existing.username,
-        )
+        if existing.email:
+            from accounts.tasks import send_otp_email as _send_otp_email
+            _send_otp_email.delay(
+                to=existing.email,
+                code=code,
+                purpose=OTPPurpose.REGISTRATION.value,
+                username=existing.username,
+            )
+        else:
+            from accounts.tasks import send_otp_whatsapp as _send_otp_whatsapp
+            _send_otp_whatsapp.delay(
+                to=existing.phone_number,
+                code=code,
+                purpose=OTPPurpose.REGISTRATION.value,
+            )
+
         expires_at = refreshed.issued_at + self._ttl
         return RegistrationDraftResult(
-            email=email,
+            email=existing.email or None,
+            phone_number=existing.phone_number,
             otp_expires_at=expires_at,
             cooldown_until=refreshed.issued_at + self._cooldown,
         )
@@ -189,15 +225,16 @@ class RegistrationService:
     def complete_registration(
         self,
         *,
-        email: str,
+        email: str | None = None,
+        phone_number: str | None = None,
         code: str,
         device_id: str | None = None,
     ) -> RegistrationCompleteResult:
-        email = self._normalize_email(email)
+        identifier = self._primary_identifier(email=email, phone_number=phone_number)
         if not code or not code.isdigit():
             raise ValidationError("OTP code must be numeric.", code="otp_invalid_format")
 
-        pending = self._store.get(email)
+        pending = self._store.get(identifier)
         if pending is None:
             raise OTPExpiredError(
                 "Your registration session has expired. Start over.",
@@ -205,7 +242,7 @@ class RegistrationService:
             )
 
         if pending.attempts >= self._max_attempts:
-            self._store.delete(email)
+            self._store.delete(identifier)
             raise OTPMaxAttemptsError()
 
         if not self._hasher.verify(code, pending.code_hash):
@@ -222,20 +259,21 @@ class RegistrationService:
             )
             remaining_ttl = self._remaining_ttl(pending.issued_at)
             if remaining_ttl <= timedelta(0):
-                self._store.delete(email)
+                self._store.delete(identifier)
                 raise OTPExpiredError()
-            self._store.replace(bumped, ttl=remaining_ttl)
+            self._store.replace(identifier, bumped, ttl=remaining_ttl)
             raise OTPInvalidError()
 
         user = self._persist_user(pending)
-        self._store.delete(email)
+        self._store.delete(identifier)
 
         tokens = self._tokens.issue(user, device_id=device_id)
-        logger.info("Registration completed user=%s email=%s", user.pk, email)
+        logger.info("Registration completed user=%s identifier=%s", user.pk, identifier)
 
         return RegistrationCompleteResult(
             user_id=str(user.pk),
-            email=user.email,
+            email=user.email or None,
+            phone_number=user.phone_number or None,
             access=tokens["access"],
             expires_at=tokens["access_expires_at"],
             refresh=tokens["refresh"],
@@ -247,11 +285,12 @@ class RegistrationService:
 
         try:
             user = User(
-                email=pending.email,
+                email=pending.email or None,
                 username=pending.username,
-                phone_number=pending.phone_number,
+                phone_number=pending.phone_number or None,
                 is_active=True,
-                is_email_verified=True,
+                is_email_verified=bool(pending.email),
+                is_phone_verified=bool(pending.phone_number and not pending.email),
                 referred_by=referrer,
             )
             user.password = pending.password_hash
@@ -283,8 +322,10 @@ class RegistrationService:
         return (issued_at + self._ttl) - timezone.now()
 
     @staticmethod
-    def _guard_existing_user(*, email: str, username: str, phone_number: str | None) -> None:
-        qs = User.objects.filter(email=email) | User.objects.filter(username=username)
+    def _guard_existing_user(*, email: str | None, username: str, phone_number: str | None) -> None:
+        qs = User.objects.filter(username=username)
+        if email:
+            qs = qs | User.objects.filter(email=email)
         if phone_number:
             qs = qs | User.objects.filter(phone_number=phone_number)
         if qs.only("id").exists():
@@ -294,10 +335,19 @@ class RegistrationService:
             )
 
     @staticmethod
-    def _normalize_email(email: str) -> str:
-        if not email or "@" not in email:
+    def _normalize_email(email: str | None) -> str | None:
+        if email is None:
+            return None
+        if "@" not in email:
             raise ValidationError("A valid email address is required.", code="email_required")
-        return email.strip().lower()
+        normalized = email.strip().lower()
+        domain = normalized.split("@")[1]
+        if not _domain_has_mx(domain):
+            raise ValidationError(
+                f"The email domain '{domain}' does not accept email.",
+                code="email_domain_invalid",
+            )
+        return normalized
 
     @staticmethod
     def _normalize_username(username: str) -> str:

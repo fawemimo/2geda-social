@@ -63,13 +63,14 @@ For DRF-thrown `Throttled` errors, the response additionally carries `retry_afte
 {
   "status":       true,
   "message":      "Items fetched successfully.",
-  "data":         [ /* the page of items */ ],
   "currentPage":  1,
   "nextPage":     2,
   "previousPage": null,
   "totalPages":   10,
   "totalItem":    200,
-  "totalPerPage": 20
+  "totalPerPage": 20,
+  "data":         [ /* the page of items */ ],
+  
 }
 ```
 
@@ -93,13 +94,13 @@ If `pagination_message` is unset, the paginator falls back to `"Items fetched su
 {
   "status":       true,
   "message":      "Items fetched successfully.",
-  "data":         [ ... ],
   "nextPage":     "http://.../?cursor=cD0yMDI2LTA1LTIzKzEy",
   "previousPage": null,
   "currentPage":  null,
   "totalPages":   null,
   "totalItem":    null,
-  "totalPerPage": 20
+  "totalPerPage": 20,
+  "data":         [ ... ]
 }
 ```
 

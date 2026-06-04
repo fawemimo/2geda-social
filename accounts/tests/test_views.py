@@ -28,6 +28,7 @@ class TestRegisterView:
     def test_register_success(self, mock_start):
         mock_start.return_value = MagicMock(
             email="a@b.com",
+            phone_number=None,
             otp_expires_at="2026-06-03T12:00:00Z",
             cooldown_until="2026-06-03T11:01:00Z",
         )
@@ -44,6 +45,7 @@ class TestRegisterView:
     def test_register_with_optional_fields(self, mock_start):
         mock_start.return_value = MagicMock(
             email="a@b.com",
+            phone_number="+2348012345678",
             otp_expires_at="2026-06-03T12:00:00Z",
             cooldown_until="2026-06-03T11:01:00Z",
         )
@@ -68,6 +70,86 @@ class TestRegisterView:
         resp = APIClient().post(self.url, {}, format="json")
         assert resp.status_code == 400
 
+    @patch("accounts.views.RegistrationService.start_registration")
+    def test_register_phone_only(self, mock_start):
+        mock_start.return_value = MagicMock(
+            email=None, phone_number="+2348012345678",
+            otp_expires_at="2026-06-03T12:00:00Z",
+            cooldown_until="2026-06-03T11:01:00Z",
+        )
+        resp = APIClient().post(self.url, {
+            "phone_number": "+2348012345678", "username": "phoneuser",
+            "password": "Str0ng!pass",
+        }, format="json")
+        assert resp.status_code == 202
+        assert resp.data["data"]["phone_number"] == "+2348012345678"
+
+    @patch("accounts.views.RegistrationService.start_registration")
+    def test_register_conflict(self, mock_start):
+        from accounts.services.exceptions import ConflictError
+        mock_start.side_effect = ConflictError()
+        resp = APIClient().post(self.url, {
+            "email": "dup@b.com", "username": "dupuser", "password": "Str0ng!pass",
+        }, format="json")
+        assert resp.status_code == 409
+
+    @patch("accounts.views.RegistrationService.start_registration")
+    def test_register_validation_error(self, mock_start):
+        from accounts.services.exceptions import ValidationError
+        mock_start.side_effect = ValidationError("Invalid input.")
+        resp = APIClient().post(self.url, {
+            "email": "a@b.com", "username": "newuser", "password": "weak",
+        }, format="json")
+        assert resp.status_code == 400
+
+    @patch("accounts.views.RegistrationService.start_registration")
+    def test_register_invalid_email_domain(self, mock_start):
+        from accounts.services.exceptions import ValidationError
+        mock_start.side_effect = ValidationError(
+            "The email domain 'baddomain.com' does not accept email.",
+            code="email_domain_invalid",
+        )
+        resp = APIClient().post(self.url, {
+            "email": "user@baddomain.com", "username": "domainuser",
+            "password": "Str0ng!pass",
+        }, format="json")
+        assert resp.status_code == 400
+        assert resp.data["code"] == "email_domain_invalid"
+
+    @patch("accounts.views.RegistrationService.start_registration")
+    def test_register_cooldown(self, mock_start):
+        from accounts.services.exceptions import OTPCooldownError
+        mock_start.side_effect = OTPCooldownError()
+        resp = APIClient().post(self.url, {
+            "email": "a@b.com", "username": "newuser", "password": "Str0ng!pass",
+        }, format="json")
+        assert resp.status_code == 429
+
+    @patch("accounts.views.RegistrationService.start_registration")
+    def test_register_quota_exceeded(self, mock_start):
+        from accounts.services.exceptions import OTPQuotaExceededError
+        mock_start.side_effect = OTPQuotaExceededError()
+        resp = APIClient().post(self.url, {
+            "email": "a@b.com", "username": "newuser", "password": "Str0ng!pass",
+        }, format="json")
+        assert resp.status_code == 429
+
+    def test_register_no_identifier(self):
+        resp = APIClient().post(self.url, {
+            "username": "noid", "password": "Str0ng!pass",
+        }, format="json")
+        assert resp.status_code == 400
+
+    @patch("accounts.views.RegistrationService.start_registration")
+    def test_register_referral_not_found(self, mock_start):
+        from accounts.services.exceptions import NotFoundError
+        mock_start.side_effect = NotFoundError("Referral code not found.")
+        resp = APIClient().post(self.url, {
+            "email": "a@b.com", "username": "newuser",
+            "password": "Str0ng!pass", "referral_code": "INVALID",
+        }, format="json")
+        assert resp.status_code == 404
+
 
 class TestVerifyRegistrationOTPView:
     url = f"{API_ROOT}auth/verify-otp/"
@@ -75,7 +157,7 @@ class TestVerifyRegistrationOTPView:
     @patch("accounts.views.RegistrationService.complete_registration")
     def test_verify_success_without_device(self, mock_complete):
         mock_complete.return_value = MagicMock(
-            user_id="u1", email="a@b.com",
+            user_id="u1", email="a@b.com", phone_number=None,
             access="access-token", refresh="refresh-token",
         )
         resp = APIClient().post(self.url, {
@@ -91,7 +173,7 @@ class TestVerifyRegistrationOTPView:
             email="devreg@test.com", username="devreguser", password="pass",
         )
         mock_complete.return_value = MagicMock(
-            user_id=str(user.pk), email="a@b.com",
+            user_id=str(user.pk), email="a@b.com", phone_number=None,
             access="access-token", refresh="refresh-token",
         )
         mock_dev_reg.return_value = MagicMock()
@@ -111,6 +193,58 @@ class TestVerifyRegistrationOTPView:
         }, format="json")
         assert resp.status_code == 400
 
+    @patch("accounts.views.RegistrationService")
+    def test_verify_expired(self, mock_reg_svc):
+        from accounts.services.exceptions import OTPExpiredError
+        mock_reg_svc.return_value.complete_registration.side_effect = OTPExpiredError()
+        resp = APIClient().post(self.url, {
+            "email": "a@b.com", "code": "123456",
+        }, format="json")
+        assert resp.status_code == 400
+
+    @patch("accounts.views.RegistrationService")
+    def test_verify_max_attempts(self, mock_reg_svc):
+        from accounts.services.exceptions import OTPMaxAttemptsError
+        mock_reg_svc.return_value.complete_registration.side_effect = OTPMaxAttemptsError()
+        resp = APIClient().post(self.url, {
+            "email": "a@b.com", "code": "123456",
+        }, format="json")
+        assert resp.status_code == 429
+
+    @patch("accounts.views.RegistrationService")
+    def test_verify_validation_error(self, mock_reg_svc):
+        from accounts.services.exceptions import ValidationError
+        mock_reg_svc.return_value.complete_registration.side_effect = ValidationError()
+        resp = APIClient().post(self.url, {
+            "email": "a@b.com", "code": "abc",
+        }, format="json")
+        assert resp.status_code == 400
+
+    def test_verify_no_code(self):
+        resp = APIClient().post(self.url, {"email": "a@b.com"}, format="json")
+        assert resp.status_code == 400
+
+    def test_verify_no_identifier(self):
+        resp = APIClient().post(self.url, {"code": "123456"}, format="json")
+        assert resp.status_code == 400
+
+    @patch("accounts.views.DeviceService.register")
+    @patch("accounts.views.RegistrationService.complete_registration")
+    def test_verify_success_with_device_phone(self, mock_complete, mock_dev_reg):
+        user = User.objects.create_user(
+            email="devregphone@test.com", username="devregphone", password="pass",
+        )
+        mock_complete.return_value = MagicMock(
+            user_id=str(user.pk), email=None, phone_number="+2348012345678",
+            access="access-token", refresh="refresh-token",
+        )
+        mock_dev_reg.return_value = MagicMock()
+        resp = APIClient().post(self.url, {
+            "phone_number": "+2348012345678", "code": "123456",
+            "device": {"platform": "android", "device_fingerprint": "fp456"},
+        }, format="json")
+        assert resp.status_code == 201
+        assert resp.data["data"]["phone_number"] == "+2348012345678"
 
 
 class TestResendOTPView:
@@ -120,7 +254,7 @@ class TestResendOTPView:
     @patch("accounts.views.RegistrationService.resend_registration_otp")
     def test_resend_registration_otp(self, mock_resend, mock_email):
         mock_resend.return_value = MagicMock(
-            email="a@b.com",
+            email="a@b.com", phone_number=None,
             otp_expires_at="2026-06-03T12:00:00Z",
             cooldown_until="2026-06-03T11:01:00Z",
         )
@@ -148,6 +282,75 @@ class TestResendOTPView:
             "email": "nonexistent@test.com", "purpose": "password_reset",
         }, format="json")
         assert resp.status_code == 404
+
+    @patch("accounts.tasks.send_otp_whatsapp")
+    @patch("accounts.views.RegistrationService.resend_registration_otp")
+    def test_resend_registration_phone(self, mock_resend, mock_whatsapp):
+        mock_resend.return_value = MagicMock(
+            email=None, phone_number="+2348012345678",
+            otp_expires_at="2026-06-03T12:00:00Z",
+            cooldown_until="2026-06-03T11:01:00Z",
+        )
+        resp = APIClient().post(self.url, {
+            "phone_number": "+2348012345678",
+        }, format="json")
+        assert resp.status_code == 200
+        assert resp.data["data"]["phone_number"] == "+2348012345678"
+
+    @patch("accounts.views.RegistrationService.resend_registration_otp")
+    def test_resend_registration_not_found(self, mock_resend):
+        from accounts.services.exceptions import NotFoundError
+        mock_resend.side_effect = NotFoundError("No pending registration.")
+        resp = APIClient().post(self.url, {"email": "a@b.com"}, format="json")
+        assert resp.status_code == 404
+
+    @patch("accounts.views.RegistrationService.resend_registration_otp")
+    def test_resend_registration_cooldown(self, mock_resend):
+        from accounts.services.exceptions import OTPCooldownError
+        mock_resend.side_effect = OTPCooldownError()
+        resp = APIClient().post(self.url, {"email": "a@b.com"}, format="json")
+        assert resp.status_code == 429
+
+    @patch("accounts.views.RegistrationService.resend_registration_otp")
+    def test_resend_registration_quota_exceeded(self, mock_resend):
+        from accounts.services.exceptions import OTPQuotaExceededError
+        mock_resend.side_effect = OTPQuotaExceededError()
+        resp = APIClient().post(self.url, {"email": "a@b.com"}, format="json")
+        assert resp.status_code == 429
+
+    @patch("accounts.tasks.send_otp_email")
+    @patch("accounts.views.OTPService.issue")
+    def test_resend_other_cooldown(self, mock_issue, mock_email):
+        from accounts.services.exceptions import OTPCooldownError
+        user = User.objects.create_user(
+            email="cooldown@test.com", username="cooldown", password="pass", is_active=True,
+        )
+        mock_issue.side_effect = OTPCooldownError()
+        resp = APIClient().post(self.url, {
+            "email": user.email, "purpose": "password_reset",
+        }, format="json")
+        assert resp.status_code == 429
+
+    @patch("accounts.tasks.send_otp_email")
+    @patch("accounts.views.OTPService.issue")
+    def test_resend_other_quota_exceeded(self, mock_issue, mock_email):
+        from accounts.services.exceptions import OTPQuotaExceededError
+        user = User.objects.create_user(
+            email="quota@test.com", username="quotauser", password="pass", is_active=True,
+        )
+        mock_issue.side_effect = OTPQuotaExceededError()
+        resp = APIClient().post(self.url, {
+            "email": user.email, "purpose": "password_reset",
+        }, format="json")
+        assert resp.status_code == 429
+
+    def test_resend_no_identifier(self):
+        resp = APIClient().post(self.url, {}, format="json")
+        assert resp.status_code == 400
+
+    def test_resend_no_identifier_with_purpose(self):
+        resp = APIClient().post(self.url, {"purpose": "password_reset"}, format="json")
+        assert resp.status_code == 400
 
 
 class TestLoginView:

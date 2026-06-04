@@ -73,35 +73,35 @@ class PendingRegistration:
 
 class PendingRegistrationStore:
 
-    def save(self, payload: PendingRegistration, *, ttl: timedelta) -> None:
-        cache.set(_payload_key(payload.email), payload.to_json(), timeout=ttl.total_seconds())
+    def save(self, identifier: str, payload: PendingRegistration, *, ttl: timedelta) -> None:
+        cache.set(_payload_key(identifier), payload.to_json(), timeout=ttl.total_seconds())
 
-    def get(self, email: str) -> PendingRegistration | None:
-        raw = cache.get(_payload_key(email))
+    def get(self, identifier: str) -> PendingRegistration | None:
+        raw = cache.get(_payload_key(identifier))
         if raw is None:
             return None
         try:
             return PendingRegistration.from_json(raw)
         except (ValueError, KeyError, json.JSONDecodeError):
-            cache.delete(_payload_key(email))
+            cache.delete(_payload_key(identifier))
             return None
 
-    def replace(self, payload: PendingRegistration, *, ttl: timedelta) -> None:
-        self.save(payload, ttl=ttl)
+    def replace(self, identifier: str, payload: PendingRegistration, *, ttl: timedelta) -> None:
+        self.save(identifier, payload, ttl=ttl)
 
-    def delete(self, email: str) -> None:
-        cache.delete(_payload_key(email))
+    def delete(self, identifier: str) -> None:
+        cache.delete(_payload_key(identifier))
 
     # ---- cooldown / quota helpers ----
 
-    def is_on_cooldown(self, email: str) -> bool:
-        return cache.get(_resend_cooldown_key(email)) is not None
+    def is_on_cooldown(self, identifier: str) -> bool:
+        return cache.get(_resend_cooldown_key(identifier)) is not None
 
-    def start_cooldown(self, email: str, *, ttl: timedelta) -> None:
-        cache.set(_resend_cooldown_key(email), 1, timeout=ttl.total_seconds())
+    def start_cooldown(self, identifier: str, *, ttl: timedelta) -> None:
+        cache.set(_resend_cooldown_key(identifier), 1, timeout=ttl.total_seconds())
 
-    def hit_quota(self, email: str, *, limit: int) -> tuple[bool, int]:
-        key = _daily_quota_key(email)
+    def hit_quota(self, identifier: str, *, limit: int) -> tuple[bool, int]:
+        key = _daily_quota_key(identifier)
         try:
             value = cache.incr(key)
         except ValueError:

@@ -16,22 +16,45 @@ class DevicePayloadSerializer(serializers.Serializer):
 
 
 class RegisterSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+    email = serializers.EmailField(required=False, allow_blank=True)
+    phone_number = serializers.CharField(max_length=20, required=False, allow_blank=True)
     username = serializers.CharField(max_length=40)
     password = serializers.CharField(min_length=8, write_only=True)
-    phone_number = serializers.CharField(max_length=20, required=False, allow_blank=True)
     referral_code = serializers.CharField(max_length=12, required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        if not attrs.get("email") and not attrs.get("phone_number"):
+            raise serializers.ValidationError(
+                "Either email or phone_number is required.", code="identifier_required"
+            )
+        return attrs
 
 
 class VerifyOTPSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+    email = serializers.EmailField(required=False, allow_blank=True)
+    phone_number = serializers.CharField(max_length=20, required=False, allow_blank=True)
     code = serializers.CharField(min_length=4, max_length=10)
     device = DevicePayloadSerializer(required=False)
 
+    def validate(self, attrs):
+        if not attrs.get("email") and not attrs.get("phone_number"):
+            raise serializers.ValidationError(
+                "Either email or phone_number is required.", code="identifier_required"
+            )
+        return attrs
+
 
 class ResendOTPSerializer(serializers.Serializer):
-    email = serializers.EmailField()
+    email = serializers.EmailField(required=False, allow_blank=True)
+    phone_number = serializers.CharField(max_length=20, required=False, allow_blank=True)
     purpose = serializers.CharField(max_length=20, required=False)
+
+    def validate(self, attrs):
+        if not attrs.get("email") and not attrs.get("phone_number"):
+            raise serializers.ValidationError(
+                "Either email or phone_number is required.", code="identifier_required"
+            )
+        return attrs
 
 
 class LoginSerializer(serializers.Serializer):

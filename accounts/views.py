@@ -76,22 +76,29 @@ class RegisterView(APIView):
     def post(self, request):
         data = RegisterSerializer(data=request.data)
         data.is_valid(raise_exception=True)
+        email = data.validated_data.get("email") or None
+        phone_number = data.validated_data.get("phone_number") or None
         result = RegistrationService().start_registration(
-            email=data.validated_data["email"],
+            email=email,
             username=data.validated_data["username"],
             password=data.validated_data["password"],
-            phone_number=data.validated_data.get("phone_number") or None,
+            phone_number=phone_number,
             referral_code=data.validated_data.get("referral_code") or None,
             ip_address=_client_ip(request),
         )
+        resp_data = {
+            "otp_expires_at": result.otp_expires_at,
+            "cooldown_until": result.cooldown_until,
+            "next": "verify_otp",
+        }
+        if result.email:
+            resp_data["email"] = result.email
+        if result.phone_number:
+            resp_data["phone_number"] = result.phone_number
+        channel = "email" if result.email else "WhatsApp"
         return APIResponse.success(
-            message="OTP has been sent to your email. Verify to finish creating your account.",
-            data={
-                "email": result.email,
-                "otp_expires_at": result.otp_expires_at,
-                "cooldown_until": result.cooldown_until,
-                "next": "verify_otp",
-            },
+            message=f"OTP has been sent to your {channel}. Verify to finish creating your account.",
+            data=resp_data,
             status_code=status.HTTP_202_ACCEPTED,
         )
 
@@ -106,14 +113,17 @@ class VerifyRegistrationOTPView(APIView):
         data = VerifyOTPSerializer(data=request.data)
         data.is_valid(raise_exception=True)
 
+        email = data.validated_data.get("email") or None
+        phone_number = data.validated_data.get("phone_number") or None
+
         result = RegistrationService().complete_registration(
-            email=data.validated_data["email"],
+            email=email,
+            phone_number=phone_number,
             code=data.validated_data["code"],
         )
 
         device_payload = data.validated_data.get("device")
         if device_payload:
-
             user = User.objects.get(pk=result.user_id)
             DeviceService().register(
                 user=user,
@@ -128,15 +138,20 @@ class VerifyRegistrationOTPView(APIView):
                 ip_address=_client_ip(request),
             )
 
+        resp_data = {
+            "user_id": result.user_id,
+            "access": result.access,
+            "refresh": result.refresh,
+            "token_type": "Bearer",
+        }
+        if result.email:
+            resp_data["email"] = result.email
+        if result.phone_number:
+            resp_data["phone_number"] = result.phone_number
+
         return APIResponse.success(
             message="Account verified and created successfully.",
-            data={
-                "user_id": result.user_id,
-                "email": result.email,
-                "access": result.access,
-                "refresh": result.refresh,
-                "token_type": "Bearer",
-            },
+            data=resp_data,
             status_code=status.HTTP_201_CREATED,
         )
 
@@ -156,21 +171,30 @@ class ResendOTPView(APIView):
         data.is_valid(raise_exception=True)
         purpose = data.validated_data.get("purpose") or OTPPurpose.REGISTRATION.value
 
+        email = data.validated_data.get("email") or None
+        phone_number = data.validated_data.get("phone_number") or None
+
         if purpose == OTPPurpose.REGISTRATION.value:
             result = RegistrationService().resend_registration_otp(
-                email=data.validated_data["email"]
+                email=email,
+                phone_number=phone_number,
             )
+            resp_data = {
+                "otp_expires_at": result.otp_expires_at,
+                "cooldown_until": result.cooldown_until,
+                "purpose": purpose,
+            }
+            if result.email:
+                resp_data["email"] = result.email
+            if result.phone_number:
+                resp_data["phone_number"] = result.phone_number
+            channel = "email" if result.email else "WhatsApp"
             return APIResponse.success(
-                message="A new OTP has been sent to your email.",
-                data={
-                    "email": result.email,
-                    "otp_expires_at": result.otp_expires_at,
-                    "cooldown_until": result.cooldown_until,
-                    "purpose": purpose,
-                },
+                message=f"A new OTP has been sent to your {channel}.",
+                data=resp_data,
             )
         
-        email = data.validated_data["email"].lower()
+        email = email.lower() if email else email
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist as exc:

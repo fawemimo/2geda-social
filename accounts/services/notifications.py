@@ -43,6 +43,14 @@ class SMSNotificationSender(INotificationSender):
     def send(self, payload: NotificationPayload) -> None:
         logger.info("SMS to %s (subject=%s): %s", payload.to, payload.subject, payload.body)
 
+
+class WhatsAppNotificationSender(INotificationSender):
+
+    def send(self, payload: NotificationPayload) -> None:
+        from clients.whatsapp import WhatsAppService
+        code = (payload.context or {}).get("code", payload.body)
+        WhatsAppService().send_otp(to=payload.to, code=code)
+
 # Used by tests / dry-runs.
 
 class NullNotificationSender(INotificationSender):

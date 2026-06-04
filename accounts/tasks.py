@@ -73,6 +73,28 @@ def send_otp_sms(*, to: str, code: str, purpose: str) -> None:
 
 
 @shared_task(
+    name="accounts.tasks.send_otp_whatsapp",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=600,
+    retry_jitter=True,
+    max_retries=5,
+    acks_late=True,
+)
+def send_otp_whatsapp(*, to: str, code: str, purpose: str) -> None:
+    from accounts.services.notifications import WhatsAppNotificationSender
+    logger.info(f"WhatsApp OTP to {to} (purpose={purpose}): {code}")
+    # WhatsAppNotificationSender().send(
+    #     NotificationPayload(
+    #         to=to,
+    #         subject=OTP_SUBJECTS.get(purpose, "Verification code"),
+    #         body=f"Your verification code is: {code}",
+    #         context={"code": code},
+    #     )
+    # )
+
+
+@shared_task(
     name="accounts.tasks.send_welcome_email",
     autoretry_for=(Exception,),
     retry_backoff=True,
