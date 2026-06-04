@@ -69,14 +69,17 @@ def _patch_consumer(monkeypatch, user, conv_ids=frozenset({"conv-1"})):
         return user
 
     monkeypatch.setattr(DirectChatConsumer, "_authenticate", fake_auth)
+    monkeypatch.setattr(DirectChatConsumer, "_get_user_conversations", AsyncMock(return_value=list(conv_ids)))
+    monkeypatch.setattr(DirectChatConsumer, "_set_online", AsyncMock())
+    monkeypatch.setattr(DirectChatConsumer, "_set_offline", AsyncMock())
+    monkeypatch.setattr(DirectChatConsumer, "_touch_online", AsyncMock())
+    monkeypatch.setattr(DirectChatConsumer, "_update_last_seen", AsyncMock())
+    monkeypatch.setattr(DirectChatConsumer, "_get_online_members", AsyncMock(return_value=[]))
+    monkeypatch.setattr(DirectChatConsumer, "_get_conversation_peer_ids", AsyncMock(return_value=[]))
+    monkeypatch.setattr(DirectChatConsumer, "_can_initiate_call", AsyncMock(return_value=True))
+    monkeypatch.setattr(DirectChatConsumer, "_broadcast_presence", AsyncMock())
     monkeypatch.setattr(
-        DirectChatConsumer,
-        "_get_user_conversations",
-        AsyncMock(return_value=list(conv_ids)),
-    )
-    monkeypatch.setattr(
-        DirectChatConsumer,
-        "_send_message",
+        DirectChatConsumer, "_send_message",
         AsyncMock(return_value={
             "id": "m1",
             "conversation_id": "conv-1",
@@ -113,7 +116,19 @@ class TestConnect:
         assert resp["user_id"] == str(user.id)
         assert "conv-a" in resp["conversations"]
         assert "conv-b" in resp["conversations"]
+        assert "online_users" in resp
 
+        await comm.disconnect()
+
+    @asynctest
+    async def test_connect_sets_online(self, user, monkeypatch):
+        _patch_consumer(monkeypatch, user)
+        monkeypatch.setattr(DirectChatConsumer, "_set_online", AsyncMock(wraps=DirectChatConsumer._set_online))
+        comm = WebsocketCommunicator(DirectChatConsumer.as_asgi(), "/ws/chat/")
+        await comm.connect()
+        await comm.receive_json_from()
+        set_online = getattr(DirectChatConsumer, "_set_online")
+        set_online.assert_awaited_once()
         await comm.disconnect()
 
     @asynctest
@@ -347,5 +362,286 @@ class TestUnknownType:
         resp = await comm.receive_json_from()
         assert resp["type"] == "error"
         assert "bogus_command" in resp["message"]
+
+        await comm.disconnect()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Heartbeat
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestHeartbeat:
+    @asynctest
+    async def test_ping_returns_pong(self, user, monkeypatch):
+        _patch_consumer(monkeypatch, user)
+        comm = WebsocketCommunicator(DirectChatConsumer.as_asgi(), "/ws/chat/")
+        await comm.connect()
+        await comm.receive_json_from()
+
+        await comm.send_json_to({"type": "ping"})
+        resp = await comm.receive_json_from()
+        assert resp["type"] == "pong"
+
+        await comm.disconnect()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Call signalling
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestCallSignalling:
+    @asynctest
+    async def test_audio_call_offer_relays_to_peer(self, user, monkeypatch):
+        _patch_consumer(monkeypatch, user)
+        comm = WebsocketCommunicator(DirectChatConsumer.as_asgi(), "/ws/chat/")
+        await comm.connect()
+        await comm.receive_json_from()
+
+        await comm.send_json_to({
+            "type": "call.offer",
+            "peer_id": "peer-1",
+            "conversation_id": "conv-1",
+            "call_type": "audio",
+            "sdp": "v=0\r\ns=-",
+        })
+        await comm.disconnect()
+
+    @asynctest
+    async def test_video_call_offer_relays_to_peer(self, user, monkeypatch):
+        _patch_consumer(monkeypatch, user)
+        comm = WebsocketCommunicator(DirectChatConsumer.as_asgi(), "/ws/chat/")
+        await comm.connect()
+        await comm.receive_json_from()
+
+        await comm.send_json_to({
+            "type": "call.offer",
+            "peer_id": "peer-1",
+            "conversation_id": "conv-1",
+            "call_type": "video",
+            "sdp": "v=0\r\ns=-",
+        })
+        await comm.disconnect()
+
+    @asynctest
+    async def test_call_offer_defaults_to_audio(self, user, monkeypatch):
+        _patch_consumer(monkeypatch, user)
+        comm = WebsocketCommunicator(DirectChatConsumer.as_asgi(), "/ws/chat/")
+        await comm.connect()
+        await comm.receive_json_from()
+
+        await comm.send_json_to({
+            "type": "call.offer",
+            "peer_id": "peer-1",
+            "conversation_id": "conv-1",
+            "sdp": "v=0",
+        })
+        await comm.disconnect()
+
+    @asynctest
+    async def test_call_offer_invalid_call_type_defaults_to_audio(self, user, monkeypatch):
+        _patch_consumer(monkeypatch, user)
+        comm = WebsocketCommunicator(DirectChatConsumer.as_asgi(), "/ws/chat/")
+        await comm.connect()
+        await comm.receive_json_from()
+
+        await comm.send_json_to({
+            "type": "call.offer",
+            "peer_id": "peer-1",
+            "conversation_id": "conv-1",
+            "call_type": "invalid",
+            "sdp": "v=0",
+        })
+        await comm.disconnect()
+
+    @asynctest
+    async def test_call_offer_missing_params_returns_error(self, user, monkeypatch):
+        _patch_consumer(monkeypatch, user)
+        comm = WebsocketCommunicator(DirectChatConsumer.as_asgi(), "/ws/chat/")
+        await comm.connect()
+        await comm.receive_json_from()
+
+        await comm.send_json_to({"type": "call.offer", "peer_id": "peer-1"})
+        resp = await comm.receive_json_from()
+        assert resp["type"] == "error"
+        assert resp["code"] == "missing_call_params"
+
+        await comm.disconnect()
+
+    @asynctest
+    async def test_call_answer_relays_to_peer(self, user, monkeypatch):
+        _patch_consumer(monkeypatch, user)
+        comm = WebsocketCommunicator(DirectChatConsumer.as_asgi(), "/ws/chat/")
+        await comm.connect()
+        await comm.receive_json_from()
+
+        await comm.send_json_to({
+            "type": "call.answer",
+            "peer_id": "peer-1",
+            "sdp": "v=0\r\ns=-",
+        })
+        await comm.disconnect()
+
+    @asynctest
+    async def test_call_answer_with_call_type(self, user, monkeypatch):
+        _patch_consumer(monkeypatch, user)
+        comm = WebsocketCommunicator(DirectChatConsumer.as_asgi(), "/ws/chat/")
+        await comm.connect()
+        await comm.receive_json_from()
+
+        await comm.send_json_to({
+            "type": "call.answer",
+            "peer_id": "peer-1",
+            "call_type": "video",
+            "sdp": "v=0\r\ns=-",
+        })
+        await comm.disconnect()
+
+    @asynctest
+    async def test_call_ice_candidate_relays_to_peer(self, user, monkeypatch):
+        _patch_consumer(monkeypatch, user)
+        comm = WebsocketCommunicator(DirectChatConsumer.as_asgi(), "/ws/chat/")
+        await comm.connect()
+        await comm.receive_json_from()
+
+        await comm.send_json_to({
+            "type": "call.ice_candidate",
+            "peer_id": "peer-1",
+            "candidate": "candidate:1 1 UDP",
+        })
+        await comm.disconnect()
+
+    @asynctest
+    async def test_call_end_relays_to_peer(self, user, monkeypatch):
+        _patch_consumer(monkeypatch, user)
+        comm = WebsocketCommunicator(DirectChatConsumer.as_asgi(), "/ws/chat/")
+        await comm.connect()
+        await comm.receive_json_from()
+
+        await comm.send_json_to({
+            "type": "call.end",
+            "peer_id": "peer-1",
+            "reason": "user_hangup",
+        })
+        await comm.disconnect()
+
+    @asynctest
+    async def test_call_offer_not_allowed(self, user, monkeypatch):
+        _patch_consumer(monkeypatch, user)
+        monkeypatch.setattr(DirectChatConsumer, "_can_initiate_call", AsyncMock(return_value=False))
+        comm = WebsocketCommunicator(DirectChatConsumer.as_asgi(), "/ws/chat/")
+        await comm.connect()
+        await comm.receive_json_from()
+
+        await comm.send_json_to({
+            "type": "call.offer",
+            "peer_id": "peer-1",
+            "conversation_id": "conv-1",
+            "sdp": "v=0",
+        })
+        resp = await comm.receive_json_from()
+        assert resp["type"] == "error"
+        assert resp["code"] == "call_not_allowed"
+
+        await comm.disconnect()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Video toggle during a call
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestVideoToggle:
+    @asynctest
+    async def test_video_toggle_enable(self, user, monkeypatch):
+        _patch_consumer(monkeypatch, user)
+        comm = WebsocketCommunicator(DirectChatConsumer.as_asgi(), "/ws/chat/")
+        await comm.connect()
+        await comm.receive_json_from()
+
+        await comm.send_json_to({
+            "type": "call.video_toggle",
+            "peer_id": "peer-1",
+            "enabled": True,
+        })
+        await comm.disconnect()
+
+    @asynctest
+    async def test_video_toggle_disable(self, user, monkeypatch):
+        _patch_consumer(monkeypatch, user)
+        comm = WebsocketCommunicator(DirectChatConsumer.as_asgi(), "/ws/chat/")
+        await comm.connect()
+        await comm.receive_json_from()
+
+        await comm.send_json_to({
+            "type": "call.video_toggle",
+            "peer_id": "peer-1",
+            "enabled": False,
+        })
+        await comm.disconnect()
+
+    @asynctest
+    async def test_video_toggle_missing_params(self, user, monkeypatch):
+        _patch_consumer(monkeypatch, user)
+        comm = WebsocketCommunicator(DirectChatConsumer.as_asgi(), "/ws/chat/")
+        await comm.connect()
+        await comm.receive_json_from()
+
+        await comm.send_json_to({"type": "call.video_toggle", "peer_id": "peer-1"})
+        resp = await comm.receive_json_from()
+        assert resp["type"] == "error"
+        assert resp["code"] == "missing_call_params"
+
+        await comm.disconnect()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Screen share during a call
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestScreenShare:
+    @asynctest
+    async def test_screen_share_start(self, user, monkeypatch):
+        _patch_consumer(monkeypatch, user)
+        comm = WebsocketCommunicator(DirectChatConsumer.as_asgi(), "/ws/chat/")
+        await comm.connect()
+        await comm.receive_json_from()
+
+        await comm.send_json_to({
+            "type": "call.screen_share",
+            "peer_id": "peer-1",
+            "sdp": "v=0\r\ns=-",
+            "sharing": True,
+        })
+        await comm.disconnect()
+
+    @asynctest
+    async def test_screen_share_stop(self, user, monkeypatch):
+        _patch_consumer(monkeypatch, user)
+        comm = WebsocketCommunicator(DirectChatConsumer.as_asgi(), "/ws/chat/")
+        await comm.connect()
+        await comm.receive_json_from()
+
+        await comm.send_json_to({
+            "type": "call.screen_share",
+            "peer_id": "peer-1",
+            "sdp": "v=0\r\ns=-",
+            "sharing": False,
+        })
+        await comm.disconnect()
+
+    @asynctest
+    async def test_screen_share_missing_params(self, user, monkeypatch):
+        _patch_consumer(monkeypatch, user)
+        comm = WebsocketCommunicator(DirectChatConsumer.as_asgi(), "/ws/chat/")
+        await comm.connect()
+        await comm.receive_json_from()
+
+        await comm.send_json_to({"type": "call.screen_share", "peer_id": "peer-1"})
+        resp = await comm.receive_json_from()
+        assert resp["type"] == "error"
+        assert resp["code"] == "missing_call_params"
 
         await comm.disconnect()

@@ -94,6 +94,9 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, PermissionsMixin, AbstractBaseUs
     is_email_verified = models.BooleanField(default=False)
     is_phone_verified = models.BooleanField(default=False)
 
+    # ---- Presence ----
+    last_seen = models.DateTimeField(null=True, blank=True, db_index=True)
+
     # ---- Referral ----
     referral_code = models.CharField(
         max_length=12,

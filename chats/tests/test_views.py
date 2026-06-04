@@ -138,3 +138,28 @@ class TestConversationMessagesView:
         )
         assert resp.status_code == 200
         assert len(resp.data["data"]) == 3
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  UserPresenceView
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestUserPresenceView:
+    url = f"{API_ROOT}presence/"
+
+    def test_unauthenticated(self):
+        resp = APIClient().get(self.url)
+        assert resp.status_code == 401
+
+    def test_empty_user_ids(self):
+        user = User.objects.create_user(email="pv1@t.com", username="pv1", password="p")
+        resp = _auth_client(user).get(self.url)
+        assert resp.status_code == 200
+        assert resp.data["data"]["online_users"] == []
+
+    def test_with_user_ids(self):
+        user = User.objects.create_user(email="pv2@t.com", username="pv2", password="p")
+        resp = _auth_client(user).get(self.url, {"user_ids": "00000000-0000-0000-0000-000000000001"})
+        assert resp.status_code == 200
+        assert isinstance(resp.data["data"]["online_users"], list)

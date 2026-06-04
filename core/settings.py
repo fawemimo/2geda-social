@@ -81,15 +81,15 @@ TEMPLATES = [
 ASGI_APPLICATION = 'core.asgi.application'
 WSGI_APPLICATION = 'core.wsgi.application'
 
+
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [os.getenv("REDIS_URL", "redis://127.0.0.1:6379/1")],
+            "hosts": [os.getenv("REDIS_URL", f"redis://:{os.getenv('REDIS_PASSWORD')}@redis:6379/1")],
         },
     },
 }
-
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases

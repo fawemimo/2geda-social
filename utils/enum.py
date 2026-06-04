@@ -144,6 +144,15 @@ class ProcessingStatus(Enum):
         return [(status.value, status.name.replace("_", " ").title()) for status in cls]
 
 
+class CallType(Enum):
+    AUDIO = "audio"
+    VIDEO = "video"
+
+    @classmethod
+    def choices(cls):
+        return [(status.value, status.name.replace("_", " ").title()) for status in cls]
+
+
 class ConversationType(Enum):
     DIRECT = "direct"  # exactly 2 participants
     GROUP = "group"  # 2+ participants, has name/avatar

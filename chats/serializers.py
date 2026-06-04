@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from django.core.cache import cache
 from rest_framework import serializers
 
 from chats.models import Conversation, ConversationMember, Message
+
+PRESENCE_CACHE_PREFIX = "online_user:"
 
 
 class ConversationMemberSerializer(serializers.ModelSerializer):
@@ -10,13 +13,18 @@ class ConversationMemberSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source="user.username", read_only=True)
     display_name = serializers.CharField(source="user.profile.display_name", read_only=True, default="")
     avatar_url = serializers.CharField(source="user.profile.avatar.cdn_url", read_only=True, default=None)
+    is_online = serializers.SerializerMethodField()
 
     class Meta:
         model = ConversationMember
         fields = [
             "user_id", "username", "display_name", "avatar_url",
             "role", "is_muted", "last_read_at", "unread_count",
+            "is_online",
         ]
+
+    def get_is_online(self, obj) -> bool:
+        return cache.get(f"{PRESENCE_CACHE_PREFIX}{obj.user_id}") is not None
 
 
 class MessageSerializer(serializers.ModelSerializer):

@@ -1,0 +1,324 @@
+{
+  "_comment": "WebSocket payload samples for the 2geda chat system.",
+  "_endpoint": "ws://host/ws/chat/?token=<JWT_ACCESS_TOKEN>",
+
+  "_sections": {
+    "connection": "Connection lifecycle",
+    "messaging": "Text messaging",
+    "typing": "Typing indicators",
+    "presence": "Online / offline presence",
+    "heartbeat": "Keep-alive",
+    "call_audio": "Audio call (WebRTC)",
+    "call_video": "Video call (WebRTC)",
+    "call_midcall": "Mid-call controls"
+  },
+
+  "connection": {
+    "description": "Sent by the server after a successful WebSocket handshake.",
+    "server_to_client": {
+      "type": "connected",
+      "user_id": "0fb7a3a4-9b76-4f7c-a7c4-3f1d6b9c4e10",
+      "conversations": [
+        "conv-uuid-1",
+        "conv-uuid-2"
+      ],
+      "online_users": [
+        { "user_id": "peer-uuid-1" },
+        { "user_id": "peer-uuid-2" }
+      ]
+    }
+  },
+
+  "messaging": {
+    "send": {
+      "description": "Client sends a text message to a conversation.",
+      "client_to_server": {
+        "type": "send_message",
+        "conversation_id": "conv-uuid-1",
+        "body": "Hey, are you free for a call?",
+        "reply_to_id": null
+      }
+    },
+    "broadcast": {
+      "description": "Server broadcasts the new message to all members of the conversation group.",
+      "server_to_client": {
+        "type": "new_message",
+        "id": "msg-uuid-abc123",
+        "conversation_id": "conv-uuid-1",
+        "sender_id": "0fb7a3a4-9b76-4f7c-a7c4-3f1d6b9c4e10",
+        "sender_username": "alice",
+        "message_type": "text",
+        "body": "Hey, are you free for a call?",
+        "reply_to_id": null,
+        "media_url": null,
+        "is_edited": false,
+        "delivery_status": "sent",
+        "created_at": "2026-06-04T14:30:00+00:00"
+      }
+    },
+    "mark_read": {
+      "description": "Client marks a conversation as read. Server broadcasts a read receipt.",
+      "client_to_server": {
+        "type": "mark_read",
+        "conversation_id": "conv-uuid-1"
+      },
+      "server_to_client": {
+        "type": "read_receipt",
+        "conversation_id": "conv-uuid-1",
+        "user_id": "0fb7a3a4-9b76-4f7c-a7c4-3f1d6b9c4e10",
+        "read_at": "2026-06-04T14:31:00+00:00"
+      }
+    }
+  },
+
+  "typing": {
+    "start": {
+      "description": "Client signals that the user started typing.",
+      "client_to_server": {
+        "type": "typing.start",
+        "conversation_id": "conv-uuid-1"
+      }
+    },
+    "stop": {
+      "description": "Client signals that the user stopped typing.",
+      "client_to_server": {
+        "type": "typing.stop",
+        "conversation_id": "conv-uuid-1"
+      }
+    },
+    "broadcast": {
+      "description": "Server relays the typing indicator to every member in the conversation.",
+      "server_to_client": {
+        "type": "typing_indicator",
+        "conversation_id": "conv-uuid-1",
+        "user_id": "0fb7a3a4-9b76-4f7c-a7c4-3f1d6b9c4e10",
+        "username": "alice",
+        "status": "start"
+      }
+    }
+  },
+
+  "presence": {
+    "online": {
+      "description": "Server notifies conversation members when a user comes online.",
+      "server_to_client": {
+        "type": "presence.online",
+        "user_id": "0fb7a3a4-9b76-4f7c-a7c4-3f1d6b9c4e10",
+        "username": "alice"
+      }
+    },
+    "offline": {
+      "description": "Server notifies conversation members when a user goes offline.",
+      "server_to_client": {
+        "type": "presence.offline",
+        "user_id": "0fb7a3a4-9b76-4f7c-a7c4-3f1d6b9c4e10",
+        "username": "alice"
+      }
+    },
+    "rest_query": {
+      "description": "REST endpoint to check online status of arbitrary users.",
+      "method": "GET",
+      "url": "/api/v2/chats/presence/?user_ids=uuid1,uuid2,uuid3",
+      "headers": { "Authorization": "Bearer <JWT_ACCESS_TOKEN>" },
+      "response": {
+        "status": true,
+        "message": "Presence fetched successfully.",
+        "data": {
+          "online_users": [
+            { "user_id": "uuid1" },
+            { "user_id": "uuid3" }
+          ]
+        }
+      }
+    }
+  },
+
+  "heartbeat": {
+    "ping": {
+      "description": "Client sends every 30 seconds to keep the connection alive and refresh presence TTL.",
+      "client_to_server": {
+        "type": "ping"
+      }
+    },
+    "pong": {
+      "description": "Server response.",
+      "server_to_client": {
+        "type": "pong"
+      }
+    }
+  },
+
+  "call_audio": {
+    "description": "Full flow for an audio-only WebRTC call between two users sharing a conversation.",
+
+    "offer": {
+      "step": "1. Caller sends SDP offer to the server, which relays it to the peer.",
+      "client_to_server": {
+        "type": "call.offer",
+        "peer_id": "peer-uuid-bob",
+        "conversation_id": "conv-uuid-1",
+        "call_type": "audio",
+        "sdp": "v=0\r\no=- 123456 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\na=msid-semantic: WMS\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=rtcp-mux\r\na=mid:0\r\na=sendrecv\r\na=rtpmap:111 opus/48000/2\r\na=ssrc:123456 cname:audioCall"
+      },
+      "server_to_peer": {
+        "type": "call_offer",
+        "caller_id": "0fb7a3a4-9b76-4f7c-a7c4-3f1d6b9c4e10",
+        "caller_username": "alice",
+        "conversation_id": "conv-uuid-1",
+        "call_type": "audio",
+        "sdp": "v=0\r\no=- 123456 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\na=msid-semantic: WMS\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=rtcp-mux\r\na=mid:0\r\na=sendrecv\r\na=rtpmap:111 opus/48000/2\r\na=ssrc:123456 cname:audioCall"
+      }
+    },
+
+    "answer": {
+      "step": "2. Callee sends SDP answer back through the server.",
+      "client_to_server": {
+        "type": "call.answer",
+        "peer_id": "0fb7a3a4-9b76-4f7c-a7c4-3f1d6b9c4e10",
+        "call_type": "audio",
+        "sdp": "v=0\r\no=- 654321 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=recvonly\r\na=rtpmap:111 opus/48000/2"
+      },
+      "server_to_caller": {
+        "type": "call_answer",
+        "callee_id": "peer-uuid-bob",
+        "call_type": "audio",
+        "sdp": "v=0\r\no=- 654321 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=recvonly\r\na=rtpmap:111 opus/48000/2"
+      }
+    },
+
+    "ice": {
+      "step": "3. Both sides exchange ICE candidates until the connection is established.",
+      "client_to_server": {
+        "type": "call.ice_candidate",
+        "peer_id": "peer-uuid-bob",
+        "candidate": "candidate:1 1 UDP 2122252543 192.168.1.10 54321 typ host"
+      },
+      "server_to_peer": {
+        "type": "call_ice_candidate",
+        "from_id": "0fb7a3a4-9b76-4f7c-a7c4-3f1d6b9c4e10",
+        "candidate": "candidate:1 1 UDP 2122252543 192.168.1.10 54321 typ host"
+      }
+    },
+
+    "end": {
+      "step": "4. Either party ends the call.",
+      "client_to_server": {
+        "type": "call.end",
+        "peer_id": "peer-uuid-bob",
+        "reason": "user_hangup"
+      },
+      "server_to_peer": {
+        "type": "call_ended",
+        "ended_by": "0fb7a3a4-9b76-4f7c-a7c4-3f1d6b9c4e10",
+        "reason": "user_hangup"
+      }
+    }
+  },
+
+  "call_video": {
+    "description": "Full flow for a video WebRTC call. Identical to audio except call_type is 'video' and the SDP includes a video m-line.",
+
+    "offer": {
+      "step": "1. Caller sends a video SDP offer.",
+      "client_to_server": {
+        "type": "call.offer",
+        "peer_id": "peer-uuid-bob",
+        "conversation_id": "conv-uuid-1",
+        "call_type": "video",
+        "sdp": "v=0\r\no=- 789012 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=msid-semantic: WMS\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=sendrecv\r\na=rtpmap:111 opus/48000/2\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=sendrecv\r\na=rtpmap:96 H264/90000\r\na=fmtp:96 packetization-mode=1\r\na=ssrc:789012 cname:videoCall"
+      },
+      "server_to_peer": {
+        "type": "call_offer",
+        "caller_id": "0fb7a3a4-9b76-4f7c-a7c4-3f1d6b9c4e10",
+        "caller_username": "alice",
+        "conversation_id": "conv-uuid-1",
+        "call_type": "video",
+        "sdp": "v=0\r\no=- 789012 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\na=msid-semantic: WMS\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=sendrecv\r\na=rtpmap:111 opus/48000/2\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=sendrecv\r\na=rtpmap:96 H264/90000\r\na=fmtp:96 packetization-mode=1\r\na=ssrc:789012 cname:videoCall"
+      }
+    },
+
+    "answer": {
+      "step": "2. Callee answers with a matching video SDP.",
+      "client_to_server": {
+        "type": "call.answer",
+        "peer_id": "0fb7a3a4-9b76-4f7c-a7c4-3f1d6b9c4e10",
+        "call_type": "video",
+        "sdp": "v=0\r\no=- 345678 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=recvonly\r\na=rtpmap:111 opus/48000/2\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=recvonly\r\na=rtpmap:96 H264/90000"
+      },
+      "server_to_caller": {
+        "type": "call_answer",
+        "callee_id": "peer-uuid-bob",
+        "call_type": "video",
+        "sdp": "v=0\r\no=- 345678 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0 1\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=recvonly\r\na=rtpmap:111 opus/48000/2\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=recvonly\r\na=rtpmap:96 H264/90000"
+      }
+    },
+
+    "ice": {
+      "step": "3. ICE candidates (same payload as audio call)."
+    },
+
+    "end": {
+      "step": "4. Either party ends the call (same payload as audio call)."
+    }
+  },
+
+  "call_midcall": {
+    "video_toggle": {
+      "description": "Either participant enables or disables their camera mid-call.",
+      "client_to_server": {
+        "type": "call.video_toggle",
+        "peer_id": "peer-uuid-bob",
+        "enabled": true
+      },
+      "server_to_peer": {
+        "type": "video_toggle",
+        "user_id": "0fb7a3a4-9b76-4f7c-a7c4-3f1d6b9c4e10",
+        "enabled": true
+      }
+    },
+
+    "screen_share": {
+      "description": "Either participant starts or stops sharing their screen.",
+      "client_to_server": {
+        "type": "call.screen_share",
+        "peer_id": "peer-uuid-bob",
+        "sdp": "v=0\r\no=- 111111 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=sendrecv\r\na=rtpmap:96 H264/90000",
+        "sharing": true
+      },
+      "server_to_peer": {
+        "type": "screen_share",
+        "from_id": "0fb7a3a4-9b76-4f7c-a7c4-3f1d6b9c4e10",
+        "sdp": "v=0\r\no=- 111111 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\nc=IN IP4 0.0.0.0\r\na=mid:1\r\na=sendrecv\r\na=rtpmap:96 H264/90000",
+        "sharing": true
+      }
+    },
+
+    "call_missed": {
+      "description": "If the callee never answers, the caller sends call.end with reason 'no_answer'.",
+      "client_to_server": {
+        "type": "call.end",
+        "peer_id": "peer-uuid-bob",
+        "reason": "no_answer"
+      },
+      "server_to_peer": {
+        "type": "call_ended",
+        "ended_by": "0fb7a3a4-9b76-4f7c-a7c4-3f1d6b9c4e10",
+        "reason": "no_answer"
+      }
+    },
+
+    "call_busy": {
+      "description": "If the callee is already in a call, send call.end with reason 'busy'.",
+      "client_to_server": {
+        "type": "call.end",
+        "peer_id": "0fb7a3a4-9b76-4f7c-a7c4-3f1d6b9c4e10",
+        "reason": "busy"
+      },
+      "server_to_caller": {
+        "type": "call_ended",
+        "ended_by": "peer-uuid-bob",
+        "reason": "busy"
+      }
+    }
+  }
+}

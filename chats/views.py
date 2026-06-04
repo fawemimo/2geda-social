@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+from django.core.cache import cache
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -14,6 +15,8 @@ from chats.serializers import (
 )
 from chats.services import ChatService
 from utils.responses import APIResponse
+
+PRESENCE_CACHE_PREFIX = "online_user:"
 
 logger = logging.getLogger(__name__)
 
@@ -72,5 +75,30 @@ class ConversationMessagesView(APIView):
         return APIResponse.success(
             message="Messages fetched successfully.",
             data=serializer.data,
+        )
+
+
+class UserPresenceView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user_ids = request.query_params.getlist("user_ids") or request.query_params.get("user_ids", "")
+        if isinstance(user_ids, str):
+            user_ids = [uid.strip() for uid in user_ids.split(",") if uid.strip()]
+
+        if not user_ids:
+            return APIResponse.success(
+                message="Presence fetched successfully.",
+                data={"online_users": []},
+            )
+
+        online = []
+        for uid in user_ids:
+            if cache.get(f"{PRESENCE_CACHE_PREFIX}{uid}"):
+                online.append({"user_id": uid})
+
+        return APIResponse.success(
+            message="Presence fetched successfully.",
+            data={"online_users": online},
         )
 
