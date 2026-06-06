@@ -20,7 +20,7 @@ Call the login endpoint and store the **access** and **refresh** tokens.
 
 ```
 POST /api/v2/accounts/auth/login/
-{ "email": "alice@example.com", "password": "secret123" }
+{ "email": "smithEze@example.com", "password": "secret123" }
 ```
 
 Response:
@@ -108,7 +108,7 @@ The server broadcasts to all participants:
   "id": "msg-uuid-abc123",
   "conversation_id": "conv-uuid-1",
   "sender_id": "0fb7a3a4-...",
-  "sender_username": "alice",
+  "sender_username": "smithEze",
   "message_type": "text",
   "body": "Hey, are you free for a call?",
   "created_at": "2026-06-04T14:30:00+00:00"
@@ -165,7 +165,7 @@ The `before` parameter implements cursor-based pagination. Pass the
   "type": "typing_indicator",
   "conversation_id": "conv-uuid-1",
   "user_id": "0fb7a3a4-...",
-  "username": "alice",
+  "username": "smithEze",
   "status": "start"
 }
 ```
@@ -187,8 +187,8 @@ The server tracks online status through the WebSocket connection.
 
 | Event | When | Payload |
 |-------|------|---------|
-| `presence.online` | User connects | `{ "type": "presence.online", "user_id": "...", "username": "alice" }` |
-| `presence.offline` | User disconnects | `{ "type": "presence.offline", "user_id": "...", "username": "alice" }` |
+| `presence.online` | User connects | `{ "type": "presence.online", "user_id": "...", "username": "smithEze" }` |
+| `presence.offline` | User disconnects | `{ "type": "presence.offline", "user_id": "...", "username": "smithEze" }` |
 | `connected.online_users` | You connect | Array of currently-online peer IDs |
 
 ### REST presence query
@@ -457,7 +457,7 @@ if (msg['type'] == 'screen_share') {
 { "type": "call.end", "peer_id": "bob", "reason": "no_answer" }
 
 // Busy — callee automatically rejects:
-{ "type": "call.end", "peer_id": "alice", "reason": "busy" }
+{ "type": "call.end", "peer_id": "smithEze", "reason": "busy" }
 ```
 
 ---

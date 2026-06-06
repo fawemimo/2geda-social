@@ -7,6 +7,8 @@ import os
 
 # Workaround for corrupted channels package in some environments.
 import channels as _channels
+
+import notifications
 if not hasattr(_channels, "DEFAULT_CHANNEL_LAYER"):
     _channels.DEFAULT_CHANNEL_LAYER = "default"
 
@@ -19,14 +21,14 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings")
 django_asgi = get_asgi_application()
 
 import chats.routing  # noqa: E402
-# import archive.notifications.routing  # noqa: E402
+import notifications.routing  # noqa: E402
 
-combined_routes = chats.routing.websocket_urlpatterns  # + archive.notifications.routing.websocket_urlpatterns
+combined_routes = chats.routing.websocket_urlpatterns  + notifications.routing.websocket_urlpatterns
 
 application = ProtocolTypeRouter({
     "http": django_asgi,
     "websocket": AuthMiddlewareStack(
-        URLRouter(chats.routing.websocket_urlpatterns)
+        URLRouter(combined_routes)
     ),
 })
 

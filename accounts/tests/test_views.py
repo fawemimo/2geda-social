@@ -378,11 +378,11 @@ class TestLoginView:
     def test_login_with_username(self, mock_login):
         mock_login.return_value = self.mock_result
         resp = APIClient().post(self.url, {
-            "username": "alice", "password": "password123",
+            "username": "smithEze", "password": "password123",
         }, format="json")
         assert resp.status_code == 200
         mock_login.assert_called_once_with(
-            email=None, username="alice", phone_number=None,
+            email=None, username="smithEze", phone_number=None,
             password="password123", device_payload=None, ip_address=ANY,
         )
 
@@ -1097,7 +1097,7 @@ class TestUserListView:
         u2 = User.objects.create_user(
             email="b@t.com", username="usertwo", password="pass", is_active=True,
         )
-        UserProfile.objects.update_or_create(user=u1, defaults={"display_name": "Alice Wonderland"})
+        UserProfile.objects.update_or_create(user=u1, defaults={"display_name": "smithEze Wonderland"})
         UserProfile.objects.update_or_create(user=u2, defaults={"display_name": "Bob Builder"})
 
         client = APIClient()
@@ -1112,12 +1112,12 @@ class TestUserListView:
             email="v@t.com", username="viewer", password="pass", is_active=True,
         )
         u1 = User.objects.create_user(
-            email="a@t.com", username="alice", password="pass", is_active=True,
+            email="a@t.com", username="smithEze", password="pass", is_active=True,
         )
         u2 = User.objects.create_user(
             email="b@t.com", username="bob", password="pass", is_active=True,
         )
-        UserProfile.objects.update_or_create(user=u1, defaults={"first_name": "Alice"})
+        UserProfile.objects.update_or_create(user=u1, defaults={"first_name": "smithEze"})
         UserProfile.objects.update_or_create(user=u2, defaults={"first_name": "Benjamin"})
 
         client = APIClient()
@@ -1125,14 +1125,14 @@ class TestUserListView:
         resp = client.get(self.url, {"first_name": "ben"})
         usernames = {u["username"] for u in resp.data["data"]}
         assert "bob" in usernames
-        assert "alice" not in usernames
+        assert "smithEze" not in usernames
 
     def test_search_last_name_icontains(self):
         viewer = User.objects.create_user(
             email="v@t.com", username="viewer", password="pass", is_active=True,
         )
         u1 = User.objects.create_user(
-            email="a@t.com", username="alice", password="pass", is_active=True,
+            email="a@t.com", username="smithEze", password="pass", is_active=True,
         )
         u2 = User.objects.create_user(
             email="b@t.com", username="bob", password="pass", is_active=True,
@@ -1144,7 +1144,7 @@ class TestUserListView:
         client.force_authenticate(user=viewer)
         resp = client.get(self.url, {"last_name": "smith"})
         usernames = {u["username"] for u in resp.data["data"]}
-        assert "alice" in usernames
+        assert "smithEze" in usernames
         assert "bob" not in usernames
 
     def test_search_city_icontains(self):
@@ -1152,7 +1152,7 @@ class TestUserListView:
             email="v@t.com", username="viewer", password="pass", is_active=True,
         )
         u1 = User.objects.create_user(
-            email="a@t.com", username="alice", password="pass", is_active=True,
+            email="a@t.com", username="smithEze", password="pass", is_active=True,
         )
         u2 = User.objects.create_user(
             email="b@t.com", username="bob", password="pass", is_active=True,
@@ -1164,7 +1164,7 @@ class TestUserListView:
         client.force_authenticate(user=viewer)
         resp = client.get(self.url, {"city": "york"})
         usernames = {u["username"] for u in resp.data["data"]}
-        assert "alice" in usernames
+        assert "smithEze" in usernames
         assert "bob" not in usernames
 
     def test_combined_filters(self):
@@ -1172,19 +1172,19 @@ class TestUserListView:
             email="v@t.com", username="viewer", password="pass", is_active=True,
         )
         u1 = User.objects.create_user(
-            email="a@test.com", username="alice", password="pass", is_active=True,
+            email="a@test.com", username="smithEze", password="pass", is_active=True,
         )
         u2 = User.objects.create_user(
             email="b@example.com", username="amy", password="pass", is_active=True,
         )
-        UserProfile.objects.update_or_create(user=u1, defaults={"first_name": "Alice", "current_city": "Paris"})
+        UserProfile.objects.update_or_create(user=u1, defaults={"first_name": "smithEze", "current_city": "Paris"})
         UserProfile.objects.update_or_create(user=u2, defaults={"first_name": "Amy", "current_city": "Paris"})
 
         client = APIClient()
         client.force_authenticate(user=viewer)
         resp = client.get(self.url, {"city": "paris", "first_name": "Al"})
         usernames = {u["username"] for u in resp.data["data"]}
-        assert "alice" in usernames
+        assert "smithEze" in usernames
         assert "amy" not in usernames
 
 

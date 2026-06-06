@@ -21,7 +21,7 @@ SIMPLE_JWT = {
 
 ```
 POST /api/v1/accounts/auth/login/
-{ "email": "alice@example.com", "password": "...", "device": { ... }? }
+{ "email": "smithEze@example.com", "password": "...", "device": { ... }? }
 ```
 
 Flow (`AuthenticationService.login`):

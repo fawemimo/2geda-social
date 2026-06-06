@@ -14,6 +14,7 @@ from channels.testing import WebsocketCommunicator
 
 from accounts.models import User
 from chats.consumers import DirectChatConsumer
+from chats.models import Conversation, ConversationMember
 from utils.enum import MemberRole
 
 pytestmark = pytest.mark.django_db
@@ -57,11 +58,6 @@ def conversation(db, user, other_user):
     return conv
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
-
 def _patch_consumer(monkeypatch, user, conv_ids=frozenset({"conv-1"})):
     """Replace all database-bound methods and channel layer with mocks."""
 
@@ -97,10 +93,6 @@ def _patch_consumer(monkeypatch, user, conv_ids=frozenset({"conv-1"})):
     monkeypatch.setattr(DirectChatConsumer, "_mark_as_read", AsyncMock())
     monkeypatch.setattr(DirectChatConsumer, "_is_member", AsyncMock(return_value=True))
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  Connect / Disconnect
-# ─────────────────────────────────────────────────────────────────────────────
 
 
 class TestConnect:

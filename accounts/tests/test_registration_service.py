@@ -41,17 +41,17 @@ class TestStartRegistration:
     @patch("accounts.tasks.send_otp_email.delay")
     def test_happy_path_email(self, mock_email_delay):
         result = self.service.start_registration(
-            email="alice@example.com",
-            username="alice",
+            email="smithEze@example.com",
+            username="smithEze",
             password="Str0ng!pass",
         )
-        assert result.email == "alice@example.com"
+        assert result.email == "smithEze@example.com"
         assert result.phone_number is None
         assert result.otp_expires_at is not None
         assert result.cooldown_until is not None
         mock_email_delay.assert_called_once_with(
-            to="alice@example.com", code=ANY,
-            purpose="registration", username="alice",
+            to="smithEze@example.com", code=ANY,
+            purpose="registration", username="smithEze",
         )
 
     @patch("accounts.tasks.send_otp_whatsapp.delay")
@@ -170,11 +170,11 @@ class TestStartRegistration:
     @patch("accounts.tasks.send_otp_email.delay")
     def test_email_normalized(self, _mock):
         result = self.service.start_registration(
-            email="  Alice@Example.COM  ",
-            username="alicenorm",
+            email="  smithEze@Example.COM  ",
+            username="smithEzenorm",
             password="Str0ng!pass",
         )
-        assert result.email == "alice@example.com"
+        assert result.email == "smithEze@example.com"
 
     @patch(DOMAIN_PATCH, return_value=False)
     @patch("accounts.tasks.send_otp_email.delay")

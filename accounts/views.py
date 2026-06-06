@@ -606,7 +606,7 @@ class DeviceTrustView(APIView):
 #  user listing & detail 
 
 class UserListView(APIView):
-    # permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]
     pagination_message = "Users fetched successfully."
 
     def get(self, request):
@@ -653,7 +653,7 @@ class UserListView(APIView):
 
 
 class UserDetailView(APIView):
-    # permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request, user_id):
         cache_key = make_user_detail_cache_key(str(user_id))

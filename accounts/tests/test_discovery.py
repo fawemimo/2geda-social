@@ -14,8 +14,8 @@ class DiscoveryCacheTest(TransactionTestCase):
 
     def setUp(self):
         self.user = User.objects.create_user(
-            email="alice@test.com",
-            username="alice",
+            email="smithEze@test.com",
+            username="smithEze",
             password="pass",
             is_active=True,
         )
@@ -83,14 +83,14 @@ class DiscoveryCacheTest(TransactionTestCase):
 class RedisEmptyFallbackTest(TransactionTestCase):
 
     def setUp(self):
-        self.alice = User.objects.create_user(
-            email="alice@test.com", username="alice", password="pass", is_active=True,
+        self.smithEze = User.objects.create_user(
+            email="smithEze@test.com", username="smithEze", password="pass", is_active=True,
         )
         self.bob = User.objects.create_user(
             email="bob@test.com", username="bob", password="pass", is_active=True,
         )
         UserLocation.objects.create(
-            user=self.alice, latitude="48.8566", longitude="2.3522",
+            user=self.smithEze, latitude="48.8566", longitude="2.3522",
         )
         UserLocation.objects.create(
             user=self.bob, latitude="48.8584", longitude="2.2945",
@@ -106,7 +106,7 @@ class RedisEmptyFallbackTest(TransactionTestCase):
     ):
         service = ConnectService()
         filters = {"distance_km": 50, "city": "", "state": "", "country": ""}
-        qs = service.get_discoverable_users(self.alice, filters)
+        qs = service.get_discoverable_users(self.smithEze, filters)
         users = list(qs)
         self.assertIn(self.bob, [u for u in users],
                        "Should fall back to PG when Redis geoset is empty")
@@ -121,7 +121,7 @@ class RedisEmptyFallbackTest(TransactionTestCase):
     ):
         service = ConnectService()
         filters = {"distance_km": 50, "city": "", "state": "", "country": ""}
-        qs = service.get_discoverable_users(self.alice, filters)
+        qs = service.get_discoverable_users(self.smithEze, filters)
         users = list(qs)
         self.assertEqual(len(users), 0,
                          "Should return empty when Redis geoset has users but none nearby")
@@ -130,9 +130,9 @@ class RedisEmptyFallbackTest(TransactionTestCase):
 class DiscoveryIntegrationTest(TransactionTestCase):
 
     def setUp(self):
-        self.alice = User.objects.create_user(
-            email="alice@test.com",
-            username="alice",
+        self.smithEze = User.objects.create_user(
+            email="smithEze@test.com",
+            username="smithEze",
             password="pass",
             is_active=True,
         )
@@ -144,7 +144,7 @@ class DiscoveryIntegrationTest(TransactionTestCase):
         )
 
         UserLocation.objects.create(
-            user=self.alice,
+            user=self.smithEze,
             latitude="48.8566",
             longitude="2.3522",
             location_data={"city": "Paris", "state": "Île-de-France", "country": "France"},
@@ -159,14 +159,14 @@ class DiscoveryIntegrationTest(TransactionTestCase):
     def test_postgres_fallback_returns_users(self):
         service = ConnectService()
         filters = {"distance_km": 50, "city": "", "state": "", "country": ""}
-        qs = service.get_discoverable_users(self.alice, filters)
+        qs = service.get_discoverable_users(self.smithEze, filters)
         users = list(qs)
         self.assertIn(self.bob, [u for u in users])
 
     def test_postgres_fallback_respects_city_filter(self):
         service = ConnectService()
         filters = {"distance_km": 50, "city": "Paris", "state": "", "country": ""}
-        qs = service.get_discoverable_users(self.alice, filters)
+        qs = service.get_discoverable_users(self.smithEze, filters)
         users = list(qs)
         self.assertIn(self.bob, [u for u in users])
 
@@ -175,19 +175,19 @@ class DiscoveryIntegrationTest(TransactionTestCase):
         from utils.enum import ConnectionStatus
 
         Connection.objects.create(
-            requester=self.alice, recipient=self.bob,
+            requester=self.smithEze, recipient=self.bob,
             status=ConnectionStatus.ACCEPTED.value,
         )
         service = ConnectService()
         filters = {"distance_km": 50, "city": "", "state": "", "country": ""}
-        qs = service.get_discoverable_users(self.alice, filters)
+        qs = service.get_discoverable_users(self.smithEze, filters)
         users = list(qs)
         self.assertNotIn(self.bob, [u for u in users])
 
     def test_annotated_distance_km(self):
         service = ConnectService()
         filters = {"distance_km": 50, "city": "", "state": "", "country": ""}
-        qs = service.get_discoverable_users(self.alice, filters)
+        qs = service.get_discoverable_users(self.smithEze, filters)
         for u in qs:
             self.assertIsNotNone(getattr(u, "distance_km", None))
             self.assertGreaterEqual(u.distance_km, 0)
@@ -208,7 +208,7 @@ class DiscoveryIntegrationTest(TransactionTestCase):
 
         service = ConnectService()
         filters = {"distance_km": 10, "city": "", "state": "", "country": ""}
-        qs = service.get_discoverable_users(self.alice, filters)
+        qs = service.get_discoverable_users(self.smithEze, filters)
         users = list(qs)
 
         self.assertNotIn(charlie, [u for u in users],
@@ -219,15 +219,15 @@ class DiscoveryIntegrationTest(TransactionTestCase):
     def test_distance_filter_excludes_all_outside_range(self):
         service = ConnectService()
         filters = {"distance_km": 0.1, "city": "", "state": "", "country": ""}
-        qs = service.get_discoverable_users(self.alice, filters)
+        qs = service.get_discoverable_users(self.smithEze, filters)
         users = list(qs)
         self.assertEqual(len(users), 0,
-                         "No users should be within 0.1 km of Alice")
+                         "No users should be within 0.1 km of smithEze")
 
     def test_distance_filter_no_value_uses_default(self):
         service = ConnectService()
         filters = {"city": "", "state": "", "country": ""}
-        qs = service.get_discoverable_users(self.alice, filters)
+        qs = service.get_discoverable_users(self.smithEze, filters)
         users = list(qs)
         self.assertIn(self.bob, [u for u in users],
                        "Bob should be found with default distance")

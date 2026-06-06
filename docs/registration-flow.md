@@ -57,8 +57,8 @@ TTL: `OTP_TTL_SECONDS` (default 600s)
 
 ```json
 {
-  "email": "alice@example.com",
-  "username": "alice",
+  "email": "smithEze@example.com",
+  "username": "smithEze",
   "phone_number": "+2348012345678",
   "password_hash": "pbkdf2_sha256$...",
   "referral_code": "A3GX91KZ",

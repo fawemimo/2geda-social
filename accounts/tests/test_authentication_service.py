@@ -53,8 +53,8 @@ def auth_service(mock_rate_limiter, mock_token_service):
 @pytest.fixture
 def active_user():
     return User.objects.create_user(
-        email="alice@example.com",
-        username="alice",
+        email="smithEze@example.com",
+        username="smithEze",
         phone_number="+2348012345678",
         password="secret123",
         is_active=True,
@@ -66,21 +66,21 @@ class TestLogin:
     @patch("accounts.services.authentication.authenticate")
     def test_login_with_email(self, mock_auth, auth_service, mock_rate_limiter, mock_token_service, active_user):
         mock_auth.return_value = active_user
-        result = auth_service.login(email="alice@example.com", password="secret123")
+        result = auth_service.login(email="smithEze@example.com", password="secret123")
 
         assert result.user_id == str(active_user.pk)
         assert result.access == "access-token"
-        mock_auth.assert_called_once_with(email="alice@example.com", password="secret123")
+        mock_auth.assert_called_once_with(email="smithEze@example.com", password="secret123")
         mock_rate_limiter.reset.assert_called_once()
         mock_token_service.issue.assert_called_once()
 
     @patch("accounts.services.authentication.authenticate")
     def test_login_with_username(self, mock_auth, auth_service, mock_rate_limiter, active_user):
         mock_auth.return_value = active_user
-        result = auth_service.login(username="alice", password="secret123")
+        result = auth_service.login(username="smithEze", password="secret123")
 
         assert result.user_id == str(active_user.pk)
-        mock_auth.assert_called_once_with(email="alice@example.com", password="secret123")
+        mock_auth.assert_called_once_with(email="smithEze@example.com", password="secret123")
         mock_rate_limiter.reset.assert_called_once()
 
     @patch("accounts.services.authentication.authenticate")
@@ -89,7 +89,7 @@ class TestLogin:
         result = auth_service.login(phone_number="+2348012345678", password="secret123")
 
         assert result.user_id == str(active_user.pk)
-        mock_auth.assert_called_once_with(email="alice@example.com", password="secret123")
+        mock_auth.assert_called_once_with(email="smithEze@example.com", password="secret123")
         mock_rate_limiter.reset.assert_called_once()
 
     @patch("accounts.services.authentication.authenticate")
@@ -97,7 +97,7 @@ class TestLogin:
         mock_auth.return_value = active_user
         auth_service._register_or_update_device = MagicMock(return_value=MagicMock(pk="d1"))
         result = auth_service.login(
-            email="alice@example.com",
+            email="smithEze@example.com",
             password="secret123",
             device_payload={"platform": "ios", "device_fingerprint": "fp123"},
             ip_address="203.0.113.42",
@@ -122,7 +122,7 @@ class TestLogin:
         mock_auth.return_value = None
 
         with pytest.raises(AuthenticationError, match="Invalid email or password"):
-            auth_service.login(email="alice@example.com", password="wrongpass")
+            auth_service.login(email="smithEze@example.com", password="wrongpass")
 
         mock_rate_limiter.hit.assert_called_once()
 
@@ -133,7 +133,7 @@ class TestLogin:
         mock_auth.return_value = active_user
 
         with pytest.raises(AccountInactiveError):
-            auth_service.login(email="alice@example.com", password="secret123")
+            auth_service.login(email="smithEze@example.com", password="secret123")
 
     @patch("accounts.services.authentication.authenticate")
     def test_login_deleted_user(self, mock_auth, auth_service, active_user):
@@ -142,7 +142,7 @@ class TestLogin:
         mock_auth.return_value = active_user
 
         with pytest.raises(AuthenticationError, match="deactivated"):
-            auth_service.login(email="alice@example.com", password="secret123")
+            auth_service.login(email="smithEze@example.com", password="secret123")
 
     def test_login_account_locked(self, auth_service, mock_rate_limiter):
         mock_rate_limiter.cooldown.return_value = True
@@ -159,7 +159,7 @@ class TestLogin:
         mock_rate_limiter.hit.return_value = (False, 11)
 
         with pytest.raises(AccountLockedError):
-            auth_service.login(email="alice@example.com", password="wrongpass")
+            auth_service.login(email="smithEze@example.com", password="wrongpass")
 
         mock_rate_limiter.start_cooldown.assert_called_once()
 
@@ -169,21 +169,21 @@ class TestLogin:
 
     def test_login_missing_password(self, auth_service):
         with pytest.raises(ValidationError, match="Identifier and password are required"):
-            auth_service.login(email="alice@example.com", password="")
+            auth_service.login(email="smithEze@example.com", password="")
 
 
 class TestResolveUser:
 
     def test_resolve_by_email(self, active_user):
-        result = AuthenticationService._resolve_user(email="alice@example.com")
+        result = AuthenticationService._resolve_user(email="smithEze@example.com")
         assert result == active_user
 
     def test_resolve_by_email_case_insensitive(self, active_user):
-        result = AuthenticationService._resolve_user(email="ALICE@example.com")
+        result = AuthenticationService._resolve_user(email="smithEze@example.com")
         assert result == active_user
 
     def test_resolve_by_username(self, active_user):
-        result = AuthenticationService._resolve_user(username="alice")
+        result = AuthenticationService._resolve_user(username="smithEze")
         assert result == active_user
 
     def test_resolve_by_phone(self, active_user):
@@ -221,12 +221,12 @@ class TestPasswordServiceRequestReset:
     def test_request_reset_with_email(
         self, mock_email, password_service, active_user
     ):
-        result = password_service.request_reset(email="alice@example.com")
+        result = password_service.request_reset(email="smithEze@example.com")
         assert result is not None
         assert result.user_id == str(active_user.pk)
         mock_email.assert_called_once_with(
-            to="alice@example.com", code="123456",
-            purpose="password_reset", username="alice",
+            to="smithEze@example.com", code="123456",
+            purpose="password_reset", username="smithEze",
         )
 
     @patch("accounts.tasks.send_otp_sms.delay")
@@ -253,7 +253,7 @@ class TestPasswordServiceRequestReset:
     def test_request_reset_otp_channel_email(
         self, mock_email, password_service, active_user
     ):
-        password_service.request_reset(email="alice@example.com")
+        password_service.request_reset(email="smithEze@example.com")
         issued = password_service._otp.issue
         issued.assert_called_once()
         call_kwargs = issued.call_args.kwargs
@@ -280,7 +280,7 @@ class TestPasswordServiceConfirmReset:
 
     def test_confirm_reset_with_email(self, password_service, active_user):
         password_service.confirm_reset(
-            email="alice@example.com", code="123456", new_password="NewStr0ng!"
+            email="smithEze@example.com", code="123456", new_password="NewStr0ng!"
         )
         password_service._otp.verify.assert_called_once_with(
             user=active_user, purpose="password_reset", code="123456"
@@ -315,14 +315,14 @@ class TestPasswordServiceConfirmReset:
 class TestPasswordServiceResolveIdentifier:
 
     def test_resolve_by_email(self, active_user):
-        identifier, user, channel = PasswordService._resolve_identifier(email="alice@example.com")
-        assert identifier == "alice@example.com"
+        identifier, user, channel = PasswordService._resolve_identifier(email="smithEze@example.com")
+        assert identifier == "smithEze@example.com"
         assert user == active_user
         assert channel == OTPChannel.EMAIL.value
 
     def test_resolve_by_email_case_insensitive(self, active_user):
-        identifier, user, channel = PasswordService._resolve_identifier(email="ALICE@example.com")
-        assert identifier == "alice@example.com"
+        identifier, user, channel = PasswordService._resolve_identifier(email="smithEze@example.com")
+        assert identifier == "smithEze@example.com"
         assert user == active_user
 
     def test_resolve_by_phone(self, active_user):

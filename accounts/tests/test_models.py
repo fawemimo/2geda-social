@@ -40,10 +40,10 @@ pytestmark = pytest.mark.django_db
 class TestUserModel:
     def test_create_user(self):
         user = User.objects.create_user(
-            email="alice@example.com", username="alice", password="securepass123",
+            email="smithEze@example.com", username="smithEze", password="securepass123",
         )
-        assert user.email == "alice@example.com"
-        assert user.username == "alice"
+        assert user.email == "smithEze@example.com"
+        assert user.username == "smithEze"
         assert user.check_password("securepass123")
         assert user.is_active is False
         assert user.is_staff is False
@@ -52,9 +52,9 @@ class TestUserModel:
 
     def test_create_user_normalizes_email(self):
         user = User.objects.create_user(
-            email="Alice@Example.COM", username="alice", password="pass",
+            email="smithEze@Example.COM", username="smithEze", password="pass",
         )
-        assert user.email == "Alice@example.com"
+        assert user.email == "smithEze@example.com"
 
     def test_create_superuser(self):
         admin = User.objects.create_superuser(

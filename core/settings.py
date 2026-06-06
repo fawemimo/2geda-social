@@ -46,7 +46,7 @@ INSTALLED_APPS = [
     'chats.apps.ChatsConfig',
     'medias.apps.MediasConfig',
     'social.apps.SocialConfig',
-    # 'notifications.apps.NotificationsConfig',
+    'notifications.apps.NotificationsConfig',
 ]
 
 MIDDLEWARE = [

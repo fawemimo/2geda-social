@@ -31,8 +31,8 @@ def pending_store() -> PendingRegistrationStore:
 @pytest.fixture
 def pending_payload(otp_hasher) -> PendingRegistration:
     return PendingRegistration(
-        email="alice@example.com",
-        username="alice",
+        email="smithEze@example.com",
+        username="smithEze",
         phone_number="+2348012345678",
         password_hash="hashed-password",
         referral_code=None,
@@ -48,8 +48,8 @@ def mock_user():
     user = MagicMock()
     user.pk = "0fb7a3a4-9b76-4f7c-a7c4-3f1d6b9c4e10"
     user.id = user.pk
-    user.email = "alice@example.com"
-    user.username = "alice"
+    user.email = "smithEze@example.com"
+    user.username = "smithEze"
     user.is_active = True
     user.is_deleted = False
     return user

@@ -9,7 +9,7 @@ from django.db.models import F
 from django.utils import timezone
 
 from chats.models import Conversation, ConversationMember, Message, MessageReaction
-from utils.enum import ConversationType, DeliveryStatus, MemberRole, MessageType
+from utils.enum import ConversationType, DeliveryStatus, MemberRole, MessageType, NotificationPriority, NotificationType
 
 logger = logging.getLogger(__name__)
 
@@ -88,8 +88,44 @@ class ChatService:
             unread_count=F("unread_count") + 1,
         )
 
-        msg = Message.objects.select_related("sender").get(pk=msg.pk)
+        msg = Message.objects.select_related("sender", "conversation").get(pk=msg.pk)
+        ChatService._dispatch_message_notifications(msg)
         return SendMessageResult(message=msg)
+
+    @staticmethod
+    def _dispatch_message_notifications(msg: Message) -> None:
+        from notifications.services.dto import CreateNotificationDTO
+        from notifications.services.notification_services import NotificationService as NotificationCreator
+        from notifications.tasks import dispatch_notification
+
+        sender = msg.sender
+        preview = msg.body[:200] if msg.body else f"[{msg.message_type}]"
+        title = f"@{sender.username} sent you a message"
+
+        other_members = ConversationMember.objects.filter(
+            conversation=msg.conversation,
+            left_at__isnull=True,
+        ).exclude(user=sender).select_related("user")
+
+        for member in other_members:
+            if member.is_muted:
+                continue
+            try:
+                dto = CreateNotificationDTO(
+                    recipient_id=str(member.user_id),
+                    notification_type=NotificationType.NEW_MESSAGE.value,
+                    title=title,
+                    body=preview,
+                    actor_id=str(sender.id),
+                    source_model=Message,
+                    source_id=str(msg.id),
+                    action_url=f"/chats/{msg.conversation_id}",
+                    priority=NotificationPriority.NORMAL.value,
+                )
+                notification = NotificationCreator.create(dto)
+                dispatch_notification.delay(str(notification.id))
+            except Exception:
+                logger.exception("Failed to dispatch message notification to %s", member.user_id)
 
     @staticmethod
 # Reset unread count and update read watermark for a member.

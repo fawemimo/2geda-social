@@ -1,4 +1,5 @@
 from django.apps import AppConfig
+from django.conf import settings
 
 
 class SocialConfig(AppConfig):
@@ -6,4 +7,6 @@ class SocialConfig(AppConfig):
 
     def ready(self):
         import social.signals  # noqa: F401
+
+        
 

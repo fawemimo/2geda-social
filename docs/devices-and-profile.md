@@ -46,7 +46,7 @@ Ownership is enforced inside the service — calling endpoints with another user
 
 ```json
 {
-  "name":               "Alice's iPhone 15",
+  "name":               "smithEze's iPhone 15",
   "platform":           "ios",
   "device_fingerprint": "ab12cd34...",
   "os_version":         "iOS 17.4",
@@ -88,7 +88,7 @@ Any field outside the whitelist raises `ValidationError(code="unknown_fields")`.
 
 ```json
 {
-  "display_name": "Alice Wonderland",
+  "display_name": "smithEze Wonderland",
   "bio":          "Curiouser and curiouser.",
   "is_private":   true
 }
