@@ -141,3 +141,31 @@ def notify_followers(
             dispatch_notification.delay(str(notification.id))
         except Exception:
             logger.exception("Failed to notify follower %s", follower_id)
+
+
+@shared_task(
+    name="social.tasks.broadcast_post_to_followers",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=3,
+    acks_late=True,
+)
+def broadcast_post_to_followers(post_id: str, author_id: str, event: dict) -> None:
+    from accounts.models import Follow, FollowStatus
+    from social.event_broadcaster import sync_broadcast_to_group
+
+    logger.info("Broadcasting post %s to followers of %s", post_id, author_id)
+
+    follower_ids = (
+        Follow.objects
+        .filter(following_id=author_id, status=FollowStatus.ACCEPTED.value)
+        .values_list("follower_id", flat=True)
+    )
+
+    payload = {"type": "feed_event", **event}
+
+    for follower_id in follower_ids:
+        try:
+            sync_broadcast_to_group(f"user_{follower_id}", payload)
+        except Exception:
+            logger.exception("Failed to broadcast to follower %s", follower_id)

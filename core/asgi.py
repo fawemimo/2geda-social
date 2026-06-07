@@ -22,8 +22,9 @@ django_asgi = get_asgi_application()
 
 import chats.routing  # noqa: E402
 import notifications.routing  # noqa: E402
+import social.routing  # noqa: E402
 
-combined_routes = chats.routing.websocket_urlpatterns  + notifications.routing.websocket_urlpatterns
+combined_routes = chats.routing.websocket_urlpatterns + notifications.routing.websocket_urlpatterns + social.routing.websocket_urlpatterns
 
 application = ProtocolTypeRouter({
     "http": django_asgi,

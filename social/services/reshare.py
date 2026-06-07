@@ -4,6 +4,7 @@ from accounts.models import User
 from accounts.services.exceptions import ConflictError, NotFoundError
 from notifications.services.dto import CreateNotificationDTO
 from notifications.tasks import dispatch_notification
+from social.event_broadcaster import broadcast_post_event, broadcast_trending_event
 from social.models import Post, Reshare
 from social.tasks import notify_followers
 from utils.enum import NotificationPriority, NotificationType
@@ -41,7 +42,27 @@ class ReshareService:
             reshare_post=reshare_post,
         )
 
+        original_post.refresh_from_db()
+
         ReshareService._dispatch_reshare_notification(user, original_post, reshare)
+
+        broadcast_post_event(str(original_post.id), {
+            "event": "reshare.new",
+            "reshare_id": str(reshare.id),
+            "user_id": str(user.id),
+            "username": user.username,
+            "post_id": str(original_post.id),
+            "reshares_count": original_post.reshares_count,
+        })
+
+        broadcast_trending_event({
+            "event": "trending.updated",
+            "post_id": str(original_post.id),
+            "action": "reshared",
+            "comments_count": original_post.comments_count,
+            "likes_count": original_post.likes_count,
+            "reshares_count": original_post.reshares_count,
+        })
 
         transaction.on_commit(lambda: notify_followers.delay(
             actor_id=str(user.id),
@@ -57,9 +78,17 @@ class ReshareService:
     @staticmethod
     @transaction.atomic
     def delete(*, instance: Reshare) -> None:
-        if instance.reshare_post_id:
+        original_post_id = str(instance.original_post_id)
+        reshare_post_id = instance.reshare_post_id
+        if reshare_post_id:
             instance.reshare_post.delete()
         instance.delete()
+        original_post = Post.objects.filter(pk=original_post_id).first()
+        broadcast_post_event(original_post_id, {
+            "event": "reshare.deleted",
+            "post_id": original_post_id,
+            "reshares_count": original_post.reshares_count if original_post else 0,
+        })
 
     @staticmethod
     def _dispatch_reshare_notification(user: User, original_post: Post, reshare: Reshare) -> None:
@@ -80,4 +109,3 @@ class ReshareService:
             dispatch_notification.delay(str(notif.id))
         except Exception:
             logger.exception("Failed to dispatch reshare notification")
-

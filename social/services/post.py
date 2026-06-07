@@ -2,8 +2,9 @@ import logging
 from django.db import transaction
 from accounts.models import User
 from medias.models import Media
+from social.event_broadcaster import broadcast_post_event
 from social.models import Post, PostMedia, Reshare
-from social.tasks import delete_media_files, notify_followers, process_post_media
+from social.tasks import broadcast_post_to_followers, delete_media_files, notify_followers, process_post_media
 from utils.enum import NotificationType
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,19 @@ class PostService:
             source_id=str(post.id),
         ))
 
+        broadcast_post_to_followers.delay(
+            post_id=str(post.id),
+            author_id=str(author.id),
+            event={
+                "event": "post.new",
+                "post_id": str(post.id),
+                "author_id": str(author.id),
+                "author_username": author.username,
+                "body": body[:500] if body else "",
+                "visibility": visibility,
+            },
+        )
+
         return post
 
     @staticmethod
@@ -77,12 +91,26 @@ class PostService:
                     transaction.on_commit(lambda: delete_media_files.delay(old_media_keys))
 
         instance.save()
+
+        broadcast_post_event(str(instance.id), {
+            "event": "post.updated",
+            "post_id": str(instance.id),
+            "author_id": str(instance.author_id),
+            "body": instance.body[:500] if instance.body else "",
+            "visibility": instance.visibility,
+        })
+
         return instance
 
     @staticmethod
     @transaction.atomic
     def delete(*, instance: Post) -> None:
+        post_id = str(instance.id)
         instance.delete()
+        broadcast_post_event(post_id, {
+            "event": "post.deleted",
+            "post_id": post_id,
+        })
 
     @staticmethod
     def _attach_media(post: Post, media_ids: list[str]) -> None:
@@ -93,4 +121,3 @@ class PostService:
                 logger.warning("Media %s not found, skipping", media_id)
                 continue
             PostMedia.objects.create(post=post, media=media, position=idx)
-

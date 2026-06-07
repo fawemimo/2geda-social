@@ -4,12 +4,14 @@ from accounts.models import User
 from accounts.services.exceptions import NotFoundError, ValidationError
 from notifications.services.dto import CreateNotificationDTO
 from notifications.tasks import dispatch_notification
+from social.event_broadcaster import broadcast_post_event, broadcast_trending_event
 from social.models import Comment, Post
 from social.tasks import notify_followers
 from utils.enum import NotificationPriority, NotificationType
 from notifications.services.notification_services import NotificationService as NotificationCreator
 
 logger = logging.getLogger(__name__)
+
 
 class CommentService:
 
@@ -35,7 +37,29 @@ class CommentService:
             body=validated_data["body"],
         )
 
+        post.refresh_from_db()
+
         CommentService._dispatch_comment_notification(comment)
+
+        broadcast_post_event(str(post.id), {
+            "event": "comment.new",
+            "comment_id": str(comment.id),
+            "author_id": str(author.id),
+            "author_username": author.username,
+            "body": comment.body[:500],
+            "parent_id": str(parent_id) if parent_id else None,
+            "post_id": str(post.id),
+            "comments_count": post.comments_count,
+        })
+
+        broadcast_trending_event({
+            "event": "trending.updated",
+            "post_id": str(post.id),
+            "action": "commented",
+            "comments_count": post.comments_count,
+            "likes_count": post.likes_count,
+            "reshares_count": post.reshares_count,
+        })
 
         transaction.on_commit(lambda: notify_followers.delay(
             actor_id=str(author.id),
@@ -58,7 +82,15 @@ class CommentService:
     @staticmethod
     @transaction.atomic
     def delete(*, instance: Comment) -> None:
+        post_id = str(instance.post_id)
         instance.delete()
+        post = Post.objects.filter(pk=post_id).first()
+        broadcast_post_event(post_id, {
+            "event": "comment.deleted",
+            "comment_id": str(instance.id),
+            "post_id": post_id,
+            "comments_count": post.comments_count if post else 0,
+        })
 
     @staticmethod
     def _dispatch_comment_notification(comment: Comment) -> None:
@@ -102,4 +134,3 @@ class CommentService:
                 dispatch_notification.delay(str(notif.id))
             except Exception:
                 logger.exception("Failed to dispatch comment notification")
-

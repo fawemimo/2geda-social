@@ -5,6 +5,7 @@ from accounts.services.exceptions import ConflictError, NotFoundError, Validatio
 from accounts.models import Follow, User
 from notifications.services.dto import CreateNotificationDTO
 from notifications.tasks import dispatch_notification
+from social.event_broadcaster import broadcast_presence_event
 from utils.enum import FollowStatus, NotificationPriority, NotificationType
 from notifications.services.notification_services import NotificationService as NotificationCreator
 logger = logging.getLogger(__name__)
@@ -37,6 +38,13 @@ class FollowService:
         )
 
         FollowService._dispatch_follow_notification(follower, following, follow)
+
+        broadcast_presence_event(str(following.id), {
+            "event": "presence.follow",
+            "follower_id": str(follower.id),
+            "follower_username": follower.username,
+        })
+
         return follow
 
     @staticmethod
@@ -50,6 +58,12 @@ class FollowService:
         deleted, _ = Follow.objects.filter(follower=follower, following=following).delete()
         if not deleted:
             raise ValidationError("You are not following this user.")
+
+        broadcast_presence_event(str(following.id), {
+            "event": "presence.unfollow",
+            "follower_id": str(follower.id),
+            "follower_username": follower.username,
+        })
 
     @staticmethod
     def _dispatch_follow_notification(follower: User, following: User, follow: Follow) -> None:
@@ -69,4 +83,3 @@ class FollowService:
             dispatch_notification.delay(str(notification.id))
         except Exception:
             logger.exception("Failed to dispatch follow notification")
-
