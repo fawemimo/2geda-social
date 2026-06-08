@@ -22,6 +22,9 @@ reply_list = views.ReplyViewSet.as_view({"get": "list"})
 reshare_list = views.ReshareViewSet.as_view({"get": "list", "post": "create"})
 reshare_detail = views.ReshareViewSet.as_view({"get": "retrieve", "delete": "destroy"})
 
+user_post_list = views.UserPostViewSet.as_view({"get": "list"})
+user_post_detail = views.UserPostViewSet.as_view({"get": "retrieve"})
+
 urlpatterns = [
     path("posts/", post_list, name="post-list"),
     path("posts/trending/", post_trending, name="post-trending"),
@@ -37,6 +40,8 @@ urlpatterns = [
     ),
     path("reshares/", reshare_list, name="reshare-list"),
     path("reshares/<uuid:pk>/", reshare_detail, name="reshare-detail"),
+    path("users/<uuid:user_id>/posts/", user_post_list, name="user-posts"),
+    path("users/<uuid:user_id>/posts/<uuid:pk>/", user_post_detail, name="user-post-detail"),
     path("follow/<uuid:user_id>/", views.FollowUserView.as_view(), name="follow"),
     path("unfollow/<uuid:user_id>/", views.UnfollowUserView.as_view(), name="unfollow"),
 ]

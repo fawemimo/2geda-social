@@ -264,6 +264,40 @@ class ReshareViewSet(viewsets.ModelViewSet):
         return APIResponse.success(message="Reshare deleted successfully.")
 
 
+class UserPostViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticatedOrReadOnly]
+    pagination_class = StandardPagination
+    serializer_class = PostListSerializer
+
+    def get_queryset(self):
+        user_id = self.kwargs.get("user_id")
+        qs = Post.objects.filter(
+            author_id=user_id, is_deleted=False
+        ).select_related(
+            "author", "reshare_of",
+        ).prefetch_related("attachments__media").order_by("-created_at")
+
+        media_type = self.request.query_params.get("media_type")
+        if media_type:
+            qs = qs.filter(attachments__media__media_type=media_type)
+
+        return qs.distinct()
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = self.get_serializer(queryset, many=True)
+        return APIResponse.success(data=serializer.data)
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return APIResponse.success(data=serializer.data)
+
+
 class FollowUserView(APIView):
     permission_classes = [IsAuthenticated]
 

@@ -10,8 +10,10 @@ from rest_framework.test import APIClient
 from accounts.models import Follow, FollowStatus, UserProfile
 from accounts.services.exceptions import ConflictError, NotFoundError, ValidationError
 from notifications.models import Notification
-from social.models import Comment, Like, Post, Reshare
+from medias.models import Media
+from social.models import Comment, Like, Post, PostMedia, Reshare
 from social.services import FollowService
+from utils.enum import MediaType
 
 User = get_user_model()
 pytestmark = pytest.mark.django_db
@@ -1263,3 +1265,168 @@ class TestRealTimeTrendingBroadcast:
         assert event_arg["event"] == "trending.updated"
         assert event_arg["post_id"] == str(post.id)
         assert event_arg["likes_count"] == post.likes_count
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  UserPostViewSet tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestUserPostList:
+    url_template = f"{API_ROOT}users/{{user_id}}/posts/"
+
+    def _url(self, user_id):
+        return self.url_template.format(user_id=user_id)
+
+    def test_returns_only_that_users_posts(self):
+        user1 = User.objects.create_user(
+            email="u1@t.com", username="user1", password="pass", is_active=True,
+        )
+        user2 = User.objects.create_user(
+            email="u2@t.com", username="user2", password="pass", is_active=True,
+        )
+        p1 = Post.objects.create(author=user1, body="User1 post")
+        Post.objects.create(author=user2, body="User2 post")
+
+        client = APIClient()
+        client.force_authenticate(user=user1)
+        resp = client.get(self._url(user1.id))
+
+        assert resp.status_code == 200
+        ids = [p["id"] for p in resp.data["data"]]
+        assert str(p1.id) in ids
+        assert len(ids) == 1
+
+    def test_excludes_deleted_posts(self):
+        user = User.objects.create_user(
+            email="u@t.com", username="user", password="pass", is_active=True,
+        )
+        alive = Post.objects.create(author=user, body="Alive")
+        dead = Post.objects.create(author=user, body="Dead")
+        dead.delete()
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+        resp = client.get(self._url(user.id))
+
+        ids = [p["id"] for p in resp.data["data"]]
+        assert str(alive.id) in ids
+        assert str(dead.id) not in ids
+
+    def test_unauthenticated_can_list(self):
+        user = User.objects.create_user(
+            email="u@t.com", username="user", password="pass", is_active=True,
+        )
+        Post.objects.create(author=user, body="Public")
+        resp = APIClient().get(self._url(user.id))
+        assert resp.status_code == 200
+
+    def test_empty_for_user_with_no_posts(self):
+        user = User.objects.create_user(
+            email="u@t.com", username="no_posts", password="pass", is_active=True,
+        )
+        client = APIClient()
+        client.force_authenticate(user=user)
+        resp = client.get(self._url(user.id))
+        assert resp.status_code == 200
+        assert resp.data["data"] == []
+
+    def test_filter_by_media_type(self):
+        user = User.objects.create_user(
+            email="u@t.com", username="user", password="pass", is_active=True,
+        )
+        image_media = Media.objects.create(
+            owner=user, media_type=MediaType.IMAGE.value,
+            storage_key="img/key.jpg", original_filename="img.jpg",
+        )
+        video_media = Media.objects.create(
+            owner=user, media_type=MediaType.VIDEO.value,
+            storage_key="vid/key.mp4", original_filename="vid.mp4",
+        )
+        post_with_image = Post.objects.create(author=user, body="Has image")
+        PostMedia.objects.create(post=post_with_image, media=image_media, position=0)
+        post_with_video = Post.objects.create(author=user, body="Has video")
+        PostMedia.objects.create(post=post_with_video, media=video_media, position=0)
+        post_no_media = Post.objects.create(author=user, body="No media")
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+
+        resp = client.get(self._url(user.id), {"media_type": MediaType.IMAGE.value})
+        assert resp.status_code == 200
+        ids = [p["id"] for p in resp.data["data"]]
+        assert str(post_with_image.id) in ids
+        assert str(post_with_video.id) not in ids
+        assert str(post_no_media.id) not in ids
+
+        resp = client.get(self._url(user.id), {"media_type": MediaType.VIDEO.value})
+        ids = [p["id"] for p in resp.data["data"]]
+        assert str(post_with_video.id) in ids
+        assert str(post_with_image.id) not in ids
+
+    def test_filter_by_media_type_unknown_returns_empty(self):
+        user = User.objects.create_user(
+            email="u@t.com", username="user", password="pass", is_active=True,
+        )
+        media = Media.objects.create(
+            owner=user, media_type=MediaType.IMAGE.value,
+            storage_key="img/key.jpg", original_filename="img.jpg",
+        )
+        post = Post.objects.create(author=user, body="Has image")
+        PostMedia.objects.create(post=post, media=media, position=0)
+
+        client = APIClient()
+        client.force_authenticate(user=user)
+        resp = client.get(self._url(user.id), {"media_type": "unknown"})
+        assert resp.status_code == 200
+        assert resp.data["data"] == []
+
+
+class TestUserPostDetail:
+    url_template = f"{API_ROOT}users/{{user_id}}/posts/{{pk}}/"
+
+    def _url(self, user_id, pk):
+        return self.url_template.format(user_id=user_id, pk=pk)
+
+    def test_retrieve_post(self):
+        user = User.objects.create_user(
+            email="u@t.com", username="user", password="pass", is_active=True,
+        )
+        post = Post.objects.create(author=user, body="Detail test")
+        client = APIClient()
+        client.force_authenticate(user=user)
+        resp = client.get(self._url(user.id, post.id))
+        assert resp.status_code == 200
+        assert resp.data["data"]["body"] == "Detail test"
+
+    def test_retrieve_post_of_other_user_returns_404(self):
+        author = User.objects.create_user(
+            email="a@t.com", username="author", password="pass", is_active=True,
+        )
+        viewer = User.objects.create_user(
+            email="v@t.com", username="viewer", password="pass", is_active=True,
+        )
+        post = Post.objects.create(author=author, body="Not yours")
+        client = APIClient()
+        client.force_authenticate(user=viewer)
+        resp = client.get(self._url(viewer.id, post.id))
+        assert resp.status_code == 404
+
+    def test_retrieve_deleted_returns_404(self):
+        user = User.objects.create_user(
+            email="u@t.com", username="user", password="pass", is_active=True,
+        )
+        post = Post.objects.create(author=user, body="Gone")
+        post.delete()
+        client = APIClient()
+        client.force_authenticate(user=user)
+        resp = client.get(self._url(user.id, post.id))
+        assert resp.status_code == 404
+
+    def test_unauthenticated_can_retrieve(self):
+        user = User.objects.create_user(
+            email="u@t.com", username="user", password="pass", is_active=True,
+        )
+        post = Post.objects.create(author=user, body="Public")
+        resp = APIClient().get(self._url(user.id, post.id))
+        assert resp.status_code == 200
