@@ -29,6 +29,8 @@ urlpatterns = [
     path('api/v2/chats/', include('chats.urls', namespace='chats')),
     path('api/v2/social/', include('social.urls', namespace='social')),
     path('api/v2/notifications/', include('notifications.urls', namespace='notifications')),
+    path('api/v2/medias/', include('medias.urls', namespace='medias')),
+    path('api/v2/displays/', include('displays.urls', namespace='displays')),
     path('api/v2/docs/swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='swagger-ui'),
     path('api/v2/docs/redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='redoc'),
     re_path(r'^api/v2/docs/openapi(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema'),

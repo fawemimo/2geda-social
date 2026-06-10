@@ -240,6 +240,7 @@ class NotificationType(Enum):
     POST_RESHARED = "post_reshared"  # "Someone reshared your post")
     COMMENT_LIKED = "comment_liked"  # "Someone liked your comment")
     COMMENT_REPLIED = "comment_replied"  # "Someone replied to your comment")
+    DISPLAY_CREATED = "display_created"  # "Someone created a new display")
 
     #  Following
     NEW_FOLLOWER = "new_follower"  # "Someone followed you")

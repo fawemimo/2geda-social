@@ -38,6 +38,7 @@ NOTIFICATION_CATEGORY_MAP: dict[str, str] = {
     NotificationType.POST_RESHARED.value: NotificationCategory.SOCIAL.value,
     NotificationType.COMMENT_LIKED.value: NotificationCategory.SOCIAL.value,
     NotificationType.COMMENT_REPLIED.value: NotificationCategory.SOCIAL.value,
+    NotificationType.DISPLAY_CREATED.value: NotificationCategory.SOCIAL.value,
     # Following
     NotificationType.NEW_FOLLOWER.value: NotificationCategory.FOLLOWING.value,
     NotificationType.FOLLOW_REQUEST.value: NotificationCategory.FOLLOWING.value,
