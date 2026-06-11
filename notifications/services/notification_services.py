@@ -62,29 +62,19 @@ class NotificationService:
 
         category = NOTIFICATION_CATEGORY_MAP[notification_type]
 
-        #  Preference gate
         is_urgent = dto.priority in (
             NotificationPriority.HIGH.value,
             NotificationPriority.URGENT.value,
         )
-        if not is_urgent:
-            if cls._is_muted_by_preference(dto.recipient_id, category):
-                logger.debug(
-                    "Notification suppressed by preference | recipient=%s category=%s",
-                    dto.recipient_id,
-                    category,
-                )
-                # Still create the record so it appears in "muted" inbox tab
-                # but mark it suppressed via a flag (we use is_sent_push=False
-                # and let dispatcher skip it)
 
-            if cls._is_muted_by_actor(dto.recipient_id, dto.actor_id):
-                logger.debug(
-                    "Notification suppressed: actor muted | recipient=%s actor=%s",
-                    dto.recipient_id,
-                    dto.actor_id,
-                )
-                return cls._create_suppressed(dto, category)
+        #  Actor-mute gate (preference channel gates handled in dispatcher)
+        if not is_urgent and cls._is_muted_by_actor(dto.recipient_id, dto.actor_id):
+            logger.debug(
+                "Notification suppressed: actor muted | recipient=%s actor=%s",
+                dto.recipient_id,
+                dto.actor_id,
+            )
+            return cls._create_suppressed(dto, category)
 
         #  Build group key 
         group_key = cls._build_group_key(notification_type, dto.source_id)
@@ -351,18 +341,6 @@ class NotificationService:
             raise NotificationNotFoundError(
                 f"Notification {notification_id} not found for user {user_id}."
             )
-
-    @classmethod
-    def _is_muted_by_preference(cls, user_id: str, category: str) -> bool:
-        """Return True if the user has turned off in_app for this category."""
-        try:
-            pref = NotificationPreference.objects.get(
-                user_id=user_id,
-                category=category,
-            )
-            return not pref.in_app_enabled
-        except NotificationPreference.DoesNotExist:
-            return False  # absence = default ON
 
     @classmethod
     def _is_muted_by_actor(cls, user_id: str, actor_id: Optional[str]) -> bool:

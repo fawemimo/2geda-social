@@ -49,6 +49,10 @@ class PreferenceUpdateSerializer(serializers.Serializer):
     email_enabled = serializers.BooleanField(default=False, required=False)
 
 
+class PreferenceBulkUpdateSerializer(serializers.Serializer):
+    preferences = serializers.ListField(child=PreferenceUpdateSerializer())
+
+
 class MuteActorSerializer(serializers.Serializer):
     actor_id = serializers.UUIDField()
     expires_at = serializers.DateTimeField(required=False, allow_null=True)

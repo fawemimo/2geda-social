@@ -10,7 +10,7 @@ from rest_framework.views import APIView
 
 from accounts.models import UserDevice
 from notifications.models import Notification, NotificationMute, NotificationPreference
-from notifications.serializers import DeviceTokenSerializer, MuteActorSerializer, MuteSerializer, MuteSourceSerializer, NotificationSerializer, PreferenceSerializer, PreferenceUpdateSerializer
+from notifications.serializers import DeviceTokenSerializer, MuteActorSerializer, MuteSerializer, MuteSourceSerializer, NotificationSerializer, PreferenceBulkUpdateSerializer, PreferenceSerializer, PreferenceUpdateSerializer
 from notifications.services.dto import MuteActorDTO, MuteSourceDTO, UpdatePreferenceDTO
 from notifications.services.notification_services import NotificationService
 from utils.pagination import StandardPagination
@@ -180,6 +180,29 @@ class PreferenceUpdateView(APIView):
         return APIResponse.success(
             message="Preference updated.",
             data=PreferenceSerializer(pref).data,
+        )
+
+
+class PreferenceBulkUpdateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request):
+        serializer = PreferenceBulkUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        results = []
+        for pref_data in serializer.validated_data["preferences"]:
+            dto = UpdatePreferenceDTO(
+                user_id=str(request.user.id),
+                category=pref_data["category"],
+                in_app_enabled=pref_data.get("in_app_enabled", True),
+                push_enabled=pref_data.get("push_enabled", True),
+                email_enabled=pref_data.get("email_enabled", False),
+            )
+            pref = NotificationService.update_preference(dto)
+            results.append(PreferenceSerializer(pref).data)
+        return APIResponse.success(
+            message=f"{len(results)} preferences updated.",
+            data={"preferences": {p["category"]: p for p in results}},
         )
 
 

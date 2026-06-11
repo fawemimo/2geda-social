@@ -23,10 +23,13 @@ from social.services import CommentService, FollowService, LikeService, PostServ
 from utils.enum import PostVisibility
 from utils.pagination import StandardPagination
 from utils.responses import APIResponse
+from utils.throttles import DeviceScopedRateThrottle
 
 
 class PostViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticatedOrReadOnly]
+    throttle_scope = "post_create"
+    throttle_classes = [DeviceScopedRateThrottle]
     pagination_class = StandardPagination
     pagination_message = "Posts fetched successfully."
 

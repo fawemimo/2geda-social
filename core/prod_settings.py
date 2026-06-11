@@ -73,8 +73,9 @@ REST_FRAMEWORK = {
         "user_sustained": "20000/day",
         "otp_request": "5/minute",
         "otp_verify": "10/minute",
-        "login": "20/minute",
-        "registration": "10/minute",
+        "login": "10/minute",
+        "registration": "5/minute",
+        "post_create": "3/minute",
     },
 }
 

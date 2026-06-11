@@ -91,6 +91,7 @@ REST_FRAMEWORK = {
         "otp_verify": "10/minute",
         "login": "20/minute",
         "registration": "10/minute",
+        "post_create": "3/minute",
     },
 }
 

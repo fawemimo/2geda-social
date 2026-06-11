@@ -19,6 +19,7 @@ urlpatterns = [
     # Preferences
     path("preferences/", views.PreferenceListView.as_view(), name="preferences"),
     path("preferences/update/", views.PreferenceUpdateView.as_view(), name="preference-update"),
+    path("preferences/bulk-update/", views.PreferenceBulkUpdateView.as_view(), name="preference-bulk-update"),
     # Mutes
     path("mutes/", views.MuteListView.as_view(), name="mutes"),
     path("mutes/actor/", views.MuteActorView.as_view(), name="mute-actor"),

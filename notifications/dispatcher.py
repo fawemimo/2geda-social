@@ -6,7 +6,7 @@ import logging
 from channels.layers import get_channel_layer
 
 from accounts.tasks import send_user_push_notification
-from notifications.models import Notification
+from notifications.models import Notification, NotificationPreference
 
 logger = logging.getLogger(__name__)
 
@@ -16,12 +16,41 @@ class NotificationDispatcher:
     Delivers a Notification to the recipient via:
       1. WebSocket (real-time via channel layer group notify_{id})
       2. Push notification (Firebase via Celery task)
+
+    Respects per-category channel preferences (in_app / push).
     """
 
     @staticmethod
     def dispatch(notification: Notification) -> None:
-        NotificationDispatcher._broadcast_ws(notification)
-        NotificationDispatcher._dispatch_push(notification)
+        prefs = NotificationDispatcher._load_preferences(notification)
+
+        if not notification.is_sent_ws and NotificationDispatcher._channel_enabled(
+            prefs, "in_app"
+        ):
+            NotificationDispatcher._broadcast_ws(notification)
+
+        if not notification.is_sent_push and NotificationDispatcher._channel_enabled(
+            prefs, "push"
+        ):
+            NotificationDispatcher._dispatch_push(notification)
+
+    @staticmethod
+    def _load_preferences(
+        notification: Notification,
+    ) -> NotificationPreference | None:
+        try:
+            return NotificationPreference.objects.get(
+                user_id=notification.recipient_id,
+                category=notification.category,
+            )
+        except NotificationPreference.DoesNotExist:
+            return None
+
+    @staticmethod
+    def _channel_enabled(pref: NotificationPreference | None, channel: str) -> bool:
+        if pref is None:
+            return True
+        return pref.is_channel_enabled(channel)
 
     @staticmethod
     def _broadcast_ws(notification: Notification) -> None:
@@ -40,6 +69,7 @@ class NotificationDispatcher:
                     loop.run_until_complete(coro)
             except RuntimeError:
                 asyncio.run(coro)
+            notification.record_ws_sent()
         except Exception:
             logger.exception("Failed to broadcast WS notification %s", notification.id)
 
@@ -58,6 +88,7 @@ class NotificationDispatcher:
                     "notification_id": str(notification.id),
                 },
             )
+            notification.record_push_sent()
         except Exception:
             logger.exception("Failed to dispatch push notification %s", notification.id)
 
