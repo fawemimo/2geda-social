@@ -92,6 +92,8 @@ def _patch_consumer(monkeypatch, user, conv_ids=frozenset({"conv-1"})):
     )
     monkeypatch.setattr(DirectChatConsumer, "_mark_as_read", AsyncMock())
     monkeypatch.setattr(DirectChatConsumer, "_is_member", AsyncMock(return_value=True))
+    monkeypatch.setattr(DirectChatConsumer, "_is_conversation_locked", AsyncMock(return_value=False))
+    monkeypatch.setattr(DirectChatConsumer, "_is_admin_or_owner", AsyncMock(return_value=True))
 
 
 

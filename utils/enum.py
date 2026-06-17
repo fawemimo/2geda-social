@@ -255,6 +255,9 @@ class NotificationType(Enum):
     NEW_MESSAGE = "new_message"  # "New message")
     GROUP_ADDED = "group_added"  # "Added to a group chat")
     GROUP_REMOVED = "group_removed"  # "Removed from a group chat")
+    JOIN_REQUEST = "join_request"  # "Wants to join a group")
+    JOIN_APPROVED = "join_approved"  # "Join request approved")
+    JOIN_REJECTED = "join_rejected"  # "Join request rejected")
 
     #  System ─
     KYC_APPROVED = "kyc_approved"  # "KYC verification approved")

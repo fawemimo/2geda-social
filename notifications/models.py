@@ -50,6 +50,9 @@ NOTIFICATION_CATEGORY_MAP: dict[str, str] = {
     NotificationType.NEW_MESSAGE.value: NotificationCategory.CHAT.value,
     NotificationType.GROUP_ADDED.value: NotificationCategory.CHAT.value,
     NotificationType.GROUP_REMOVED.value: NotificationCategory.CHAT.value,
+    NotificationType.JOIN_REQUEST.value: NotificationCategory.CHAT.value,
+    NotificationType.JOIN_APPROVED.value: NotificationCategory.CHAT.value,
+    NotificationType.JOIN_REJECTED.value: NotificationCategory.CHAT.value,
     # System
     NotificationType.KYC_APPROVED.value: NotificationCategory.SYSTEM.value,
     NotificationType.KYC_REJECTED.value: NotificationCategory.SYSTEM.value,

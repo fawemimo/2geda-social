@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 import logging
-import traceback
 from datetime import timedelta
 
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import AccessToken
 
 from utils.enum import CallType
-from chats.models import ConversationMember
+from chats.models import Conversation, ConversationMember, Message
 from chats.services import ChatService
 
 logger = logging.getLogger(__name__)
@@ -91,6 +91,7 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
         msg_type = content.get("type")
         handler = {
             "send_message": self._handle_send_message,
+            "delete_message": self._handle_delete_message,
             "mark_read": self._handle_mark_read,
             "typing.start": self._handle_typing_start,
             "typing.stop": self._handle_typing_stop,
@@ -129,6 +130,12 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
         if not can_send:
             return await self._error("not_a_member")
 
+        is_locked = await self._is_conversation_locked(conversation_id)
+        if is_locked:
+            is_admin = await self._is_admin_or_owner(conversation_id)
+            if not is_admin:
+                return await self._error("group_locked", "This group is locked. Only admins can send messages.")
+
         payload = await self._send_message(
             conversation_id=conversation_id,
             body=body,
@@ -137,6 +144,28 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
         payload["type"] = "new_message"
 
         await self.channel_layer.group_send(f"chat_{conversation_id}", payload)
+
+    async def _handle_delete_message(self, content: dict):
+        message_id = content.get("message_id")
+        if not message_id:
+            return await self._error("missing_message_id")
+
+        try:
+            result = await self._delete_message(message_id=message_id)
+        except PermissionError:
+            return await self._error("not_allowed", "You can only delete your own messages.")
+        except Message.DoesNotExist:
+            return await self._error("message_not_found")
+
+        await self.channel_layer.group_send(
+            f"chat_{result['conversation_id']}",
+            {
+                "type": "message_deleted",
+                "message_id": result["message_id"],
+                "conversation_id": result["conversation_id"],
+                "deleted_by_id": str(self.user.id),
+            },
+        )
 
     async def _handle_mark_read(self, content: dict):
         conversation_id = content.get("conversation_id")
@@ -326,6 +355,33 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
     async def screen_share(self, event: dict):
         await self.send_json(event)
 
+    async def message_deleted(self, event: dict):
+        await self.send_json(event)
+
+    async def member_removed(self, event: dict):
+        await self.send_json(event)
+
+    async def group_locked(self, event: dict):
+        await self.send_json(event)
+
+    async def group_unlocked(self, event: dict):
+        await self.send_json(event)
+
+    async def group_members_updated(self, event: dict):
+        await self.send_json(event)
+
+    async def join_request_created(self, event: dict):
+        await self.send_json(event)
+
+    async def join_request_approved(self, event: dict):
+        await self.send_json(event)
+
+    async def join_request_rejected(self, event: dict):
+        await self.send_json(event)
+
+    async def member_promoted(self, event: dict):
+        await self.send_json(event)
+
     # ──────────────────────────────────────────────────────────────────────────
     #  Broadcast helpers
     # ──────────────────────────────────────────────────────────────────────────
@@ -471,3 +527,28 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
             user_id=str(self.user.id),
         )
 
+    @database_sync_to_async
+    def _is_conversation_locked(self, conversation_id: str) -> bool:
+        try:
+            conv = Conversation.objects.get(pk=conversation_id)
+            return conv.is_locked
+        except (Conversation.DoesNotExist, ValidationError):
+            return False
+
+    @database_sync_to_async
+    def _is_admin_or_owner(self, conversation_id: str) -> bool:
+        return ChatService._is_admin_or_owner(
+            conversation_id=conversation_id,
+            user_id=str(self.user.id),
+        )
+
+    @database_sync_to_async
+    def _delete_message(self, message_id: str) -> dict:
+        msg = ChatService.delete_message(
+            message_id=message_id,
+            actor_id=str(self.user.id),
+        )
+        return {
+            "message_id": str(msg.id),
+            "conversation_id": str(msg.conversation_id),
+        }

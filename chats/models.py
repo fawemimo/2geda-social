@@ -38,6 +38,15 @@ class Conversation(BaseModel):
         related_name="created_conversations",
     )
 
+    # Lock state — prevents non-admins from sending messages
+    is_locked = models.BooleanField(default=False)
+    locked_by = models.ForeignKey(
+        User,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="locked_conversations",
+    )
+
     # Denormalised last-activity timestamp for inbox ordering
     last_message_at = models.DateTimeField(
         null=True, blank=True,
@@ -203,6 +212,14 @@ class Message(BaseModel):
     edited_at = models.DateTimeField(null=True, blank=True)
 
 
+    # Who deleted this message (admin or the author)
+    deleted_by = models.ForeignKey(
+        User,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="deleted_messages",
+    )
+
     delivery_status = models.CharField(
         max_length=10,
         choices=DeliveryStatus.choices,
@@ -230,13 +247,14 @@ class Message(BaseModel):
         ]
 # Clear sensitive content before soft-deleting.
 
-    def soft_delete(self):
+    def soft_delete(self, deleted_by_id=None):
         self.body  = ""
         self.media = None
         self.is_deleted = True
         self.deleted_at = timezone.now()
-        self.save(update_fields=["body", "media", "is_deleted", "deleted_at"])
-# Minimal serialisable dict for WebSocket broadcast.
+        if deleted_by_id:
+            self.deleted_by_id = deleted_by_id
+        self.save(update_fields=["body", "media", "is_deleted", "deleted_at", "deleted_by"])
 
     def to_event_payload(self) -> dict:
         return {
@@ -251,6 +269,8 @@ class Message(BaseModel):
             "is_edited":      self.is_edited,
             "delivery_status": self.delivery_status,
             "created_at":     self.created_at.isoformat(),
+            "is_deleted":     self.is_deleted,
+            "deleted_by_id":  str(self.deleted_by_id) if self.deleted_by_id else None,
         }
 
     def __str__(self) -> str:
@@ -281,5 +301,54 @@ class MessageReaction(UUIDPrimaryKeyMixin, TimestampMixin):
 
     def __str__(self) -> str:
         return f"{self.emoji} by {self.user.username} on {self.message_id}"
+
+
+class JoinRequest(UUIDPrimaryKeyMixin, TimestampMixin):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+    STATUS_CHOICES = [
+        (PENDING, _("Pending")),
+        (APPROVED, _("Approved")),
+        (REJECTED, _("Rejected")),
+    ]
+
+    conversation = models.ForeignKey(
+        Conversation,
+        on_delete=models.CASCADE,
+        related_name="join_requests",
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="group_join_requests",
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=STATUS_CHOICES,
+        default=PENDING,
+        db_index=True,
+    )
+    processed_by = models.ForeignKey(
+        User,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="processed_join_requests",
+    )
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "chat_join_request"
+        unique_together = [("conversation", "user")]
+        indexes = [
+            models.Index(
+                fields=["conversation", "status"],
+                name="join_req_conv_status_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user.username} → {self.conversation_id} [{self.status}]"
 
 
