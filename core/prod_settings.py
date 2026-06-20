@@ -110,6 +110,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "displays.tasks.hard_delete_expired_displays",
         "schedule": crontab(minute="*/15"),
     },
+    "close-expired-polls-every-5-minutes": {
+        "task": "polls.tasks.close_expired_polls",
+        "schedule": crontab(minute="*/5"),
+    },
 }
 
 # Account / OTP tuning knobs — overridable via env without touching code.

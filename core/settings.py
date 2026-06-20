@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'social.apps.SocialConfig',
     'notifications.apps.NotificationsConfig',
     'displays.apps.DisplaysConfig',
+    'polls.apps.PollsConfig',
 ]
 
 MIDDLEWARE = [
