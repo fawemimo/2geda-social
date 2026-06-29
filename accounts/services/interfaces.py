@@ -8,7 +8,7 @@ from typing import Any, Protocol
 
 @dataclass(frozen=True, slots=True)
 class NotificationPayload:
-    to: str
+    to: str | list
     subject: str
     body: str
     template: str | None = None
