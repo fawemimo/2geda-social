@@ -61,6 +61,11 @@ NOTIFICATION_CATEGORY_MAP: dict[str, str] = {
     NotificationType.PASSWORD_CHANGED.value: NotificationCategory.SYSTEM.value,
     NotificationType.ACCOUNT_SUSPENDED.value: NotificationCategory.SYSTEM.value,
     NotificationType.REFERRAL_JOINED.value: NotificationCategory.SYSTEM.value,
+    # Tickets
+    NotificationType.TICKET_PURCHASE.value: NotificationCategory.TICKETS.value,
+    NotificationType.TICKET_CANCELLED.value: NotificationCategory.TICKETS.value,
+    NotificationType.DISPUTE_OPENED.value: NotificationCategory.TICKETS.value,
+    NotificationType.DISPUTE_RESOLVED.value: NotificationCategory.TICKETS.value,
     # Marketing
     NotificationType.ANNOUNCEMENT.value: NotificationCategory.MARKETING.value,
     NotificationType.PROMOTION.value: NotificationCategory.MARKETING.value,

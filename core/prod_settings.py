@@ -114,6 +114,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "polls.tasks.close_expired_polls",
         "schedule": crontab(minute="*/5"),
     },
+    "release-expired-ticket-reservations-every-5-minutes": {
+        "task": "tickets.tasks.release_expired_reservations",
+        "schedule": crontab(minute="*/5"),
+    },
 }
 
 # Account / OTP tuning knobs — overridable via env without touching code.
@@ -125,6 +129,10 @@ OTP_DAILY_QUOTA = int(os.getenv("OTP_DAILY_QUOTA", "20"))
 PASSWORD_RESET_TTL_SECONDS = int(os.getenv("PASSWORD_RESET_TTL_SECONDS", "900"))
 LOGIN_MAX_FAILED_ATTEMPTS = int(os.getenv("LOGIN_MAX_FAILED_ATTEMPTS", "10"))
 LOGIN_LOCKOUT_SECONDS = int(os.getenv("LOGIN_LOCKOUT_SECONDS", "900"))
+
+PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY", "")
+PAYSTACK_PUBLIC_KEY = os.getenv("PAYSTACK_PUBLIC_KEY", "")
+PAYSTACK_CALLBACK_URL = os.getenv("PAYSTACK_CALLBACK_URL", "")
 
 AUTH_USER_MODEL = "accounts.User"
 

@@ -226,6 +226,7 @@ class NotificationCategory(Enum):
     MENTION = "mention"  # @username mentions
     CHAT = "chat"  # new message, group add
     SYSTEM = "system"  # account updates, KYC, security
+    TICKETS = "tickets"  # ticket purchases, disputes
     MARKETING = "marketing"  # platform announcements (opt-in)
 
     @classmethod
@@ -267,6 +268,12 @@ class NotificationType(Enum):
     PASSWORD_CHANGED = "password_changed"  # "Your password was changed")
     ACCOUNT_SUSPENDED = "account_suspended"  # "Account suspended")
     REFERRAL_JOINED = "referral_joined"  # "Someone joined using your referral")
+
+    #  Tickets
+    TICKET_PURCHASE = "ticket_purchase"  # "Someone purchased tickets")
+    TICKET_CANCELLED = "ticket_cancelled"  # "Ticket cancelled")
+    DISPUTE_OPENED = "dispute_opened"  # "Dispute opened on your event")
+    DISPUTE_RESOLVED = "dispute_resolved"  # "Dispute resolved")
 
     #  Marketing
     ANNOUNCEMENT = "announcement"  # "Platform announcement")
@@ -321,6 +328,131 @@ class PollStatus(Enum):
     DRAFT = "draft"
     ACTIVE = "active"
     CLOSED = "closed"
+
+    @classmethod
+    def choices(cls):
+        return [(status.value, status.name.replace("_", " ").title()) for status in cls]
+
+
+# ──────────────────────────────────────────────
+# Tickets / Events
+# ──────────────────────────────────────────────
+
+
+class EventStatus(Enum):
+    DRAFT = "draft"
+    PUBLISHED = "published"
+    CANCELLED = "cancelled"
+    COMPLETED = "completed"
+
+    @classmethod
+    def choices(cls):
+        return [(status.value, status.name.replace("_", " ").title()) for status in cls]
+
+
+class EventVisibility(Enum):
+    PUBLIC = "public"
+    PRIVATE_LINK = "private_link"
+
+    @classmethod
+    def choices(cls):
+        return [(status.value, status.name.replace("_", " ").title()) for status in cls]
+
+
+class TicketFeeBearer(Enum):
+    BUYER = "buyer"
+    SELLER = "seller"
+
+    @classmethod
+    def choices(cls):
+        return [(status.value, status.name.replace("_", " ").title()) for status in cls]
+
+
+class PriceTag(Enum):
+    GENERAL = "general"
+    VIP = "vip"
+    REGULAR = "regular"
+    GOLD = "gold"
+
+    @classmethod
+    def choices(cls):
+        return [(status.value, status.name.replace("_", " ").title()) for status in cls]
+
+
+class PricingMode(Enum):
+    FLAT = "flat"
+    CATEGORIZED = "categorized"
+
+    @classmethod
+    def choices(cls):
+        return [(status.value, status.name.replace("_", " ").title()) for status in cls]
+
+
+class SellerStatus(Enum):
+    NOT_SUBMITTED = "not_submitted"
+    PENDING = "pending"
+    UNDER_REVIEW = "under_review"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    SUSPENDED = "suspended"
+
+    @classmethod
+    def choices(cls):
+        return [(status.value, status.name.replace("_", " ").title()) for status in cls]
+
+
+class TicketStatus(Enum):
+    RESERVED = "reserved"
+    SOLD = "sold"
+    REFUNDED = "refunded"
+    CANCELLED = "cancelled"
+
+    @classmethod
+    def choices(cls):
+        return [(status.value, status.name.replace("_", " ").title()) for status in cls]
+
+
+class DisputeReason(Enum):
+    TICKET_NOT_DELIVERED = "ticket_not_delivered"
+    EVENT_CANCELLED = "event_cancelled"
+    WRONG_DESCRIPTION = "wrong_description"
+    REFUND_REQUEST = "refund_request"
+    OTHER = "other"
+
+    @classmethod
+    def choices(cls):
+        return [(status.value, status.name.replace("_", " ").title()) for status in cls]
+
+
+class DisputeStatus(Enum):
+    OPEN = "open"
+    UNDER_REVIEW = "under_review"
+    RESOLVED_BUYER = "resolved_buyer"
+    RESOLVED_SELLER = "resolved_seller"
+    CLOSED = "closed"
+
+    @classmethod
+    def choices(cls):
+        return [(status.value, status.name.replace("_", " ").title()) for status in cls]
+
+
+class PaymentStatus(Enum):
+    PENDING = "pending"
+    SUCCESSFUL = "successful"
+    FAILED = "failed"
+    REFUNDED = "refunded"
+    PARTIALLY_REFUNDED = "partially_refunded"
+
+    @classmethod
+    def choices(cls):
+        return [(status.value, status.name.replace("_", " ").title()) for status in cls]
+
+
+class TransactionType(Enum):
+    PURCHASE = "purchase"
+    REFUND = "refund"
+    FEE = "fee"
+    PAYOUT = "payout"
 
     @classmethod
     def choices(cls):
