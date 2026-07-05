@@ -24,8 +24,8 @@ def status_check(request):
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path("status/", status_check),
-    path("prometheus/", include("django_prometheus.urls")),
+    path("", status_check),
+    # path("prometheus/", include("django_prometheus.urls")),
     path('api/v2/accounts/', include('accounts.urls', namespace='accounts')),
     path('api/v2/chats/', include('chats.urls', namespace='chats')),
     path('api/v2/social/', include('social.urls', namespace='social')),
