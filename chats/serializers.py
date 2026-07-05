@@ -69,7 +69,9 @@ class ConversationSerializer(serializers.ModelSerializer):
         return None
 
     def get_unread_count(self, obj) -> int:
-        user = self.context.get("request").user if self.context.get("request") else None
+        user = self.context.get("user")
+        if not user and self.context.get("request"):
+            user = self.context.get("request").user
         if user:
             try:
                 return ConversationMember.objects.get(

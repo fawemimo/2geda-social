@@ -74,6 +74,24 @@ def _patch_consumer(monkeypatch, user, conv_ids=frozenset({"conv-1"})):
     monkeypatch.setattr(DirectChatConsumer, "_get_conversation_peer_ids", AsyncMock(return_value=[]))
     monkeypatch.setattr(DirectChatConsumer, "_can_initiate_call", AsyncMock(return_value=True))
     monkeypatch.setattr(DirectChatConsumer, "_broadcast_presence", AsyncMock())
+    monkeypatch.setattr(DirectChatConsumer, "_list_conversations", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        DirectChatConsumer, "_get_messages",
+        AsyncMock(return_value=[{
+            "id": "m1",
+            "conversation_id": "conv-1",
+            "sender_id": str(user.id),
+            "sender_username": user.username,
+            "message_type": "text",
+            "body": "hello",
+            "reply_to_id": None,
+            "media_url": None,
+            "is_edited": False,
+            "delivery_status": "sent",
+            "created_at": "2026-06-03T12:00:00",
+            "is_deleted": False,
+        }]),
+    )
     monkeypatch.setattr(
         DirectChatConsumer, "_send_message",
         AsyncMock(return_value={
@@ -117,11 +135,11 @@ class TestConnect:
     @asynctest
     async def test_connect_sets_online(self, user, monkeypatch):
         _patch_consumer(monkeypatch, user)
-        monkeypatch.setattr(DirectChatConsumer, "_set_online", AsyncMock(wraps=DirectChatConsumer._set_online))
+        set_online = AsyncMock()
+        monkeypatch.setattr(DirectChatConsumer, "_set_online", set_online)
         comm = WebsocketCommunicator(DirectChatConsumer.as_asgi(), "/ws/chat/")
         await comm.connect()
         await comm.receive_json_from()
-        set_online = getattr(DirectChatConsumer, "_set_online")
         set_online.assert_awaited_once()
         await comm.disconnect()
 
@@ -134,6 +152,55 @@ class TestConnect:
         comm = WebsocketCommunicator(DirectChatConsumer.as_asgi(), "/ws/chat/")
         connected, _ = await comm.connect()
         assert connected is False
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Conversation and history commands
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestConversationCommands:
+    @asynctest
+    async def test_list_conversations_returns_response(self, user, monkeypatch):
+        _patch_consumer(monkeypatch, user)
+        comm = WebsocketCommunicator(DirectChatConsumer.as_asgi(), "/ws/chat/")
+        await comm.connect()
+        await comm.receive_json_from()
+
+        await comm.send_json_to({
+            "type": "list_conversations",
+            "request_id": "req-list",
+        })
+
+        resp = await comm.receive_json_from()
+        assert resp["type"] == "response"
+        assert resp["request_id"] == "req-list"
+        assert resp["action"] == "list_conversations"
+        assert resp["resource"] == "conversations"
+        assert resp["data"] == []
+
+        await comm.disconnect()
+
+    @asynctest
+    async def test_get_messages_returns_response(self, user, monkeypatch):
+        _patch_consumer(monkeypatch, user)
+        comm = WebsocketCommunicator(DirectChatConsumer.as_asgi(), "/ws/chat/")
+        await comm.connect()
+        await comm.receive_json_from()
+
+        await comm.send_json_to({
+            "type": "get_messages",
+            "request_id": "req-history",
+            "conversation_id": "conv-1",
+        })
+
+        resp = await comm.receive_json_from()
+        assert resp["type"] == "response"
+        assert resp["request_id"] == "req-history"
+        assert resp["resource"] == "messages"
+        assert resp["data"][0]["body"] == "hello"
+
+        await comm.disconnect()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -226,16 +293,16 @@ class TestMarkRead:
         await comm.disconnect()
 
     @asynctest
-    async def test_no_conv_id_is_silent(self, user, monkeypatch):
+    async def test_no_conv_id_returns_error(self, user, monkeypatch):
         _patch_consumer(monkeypatch, user)
         comm = WebsocketCommunicator(DirectChatConsumer.as_asgi(), "/ws/chat/")
         await comm.connect()
         await comm.receive_json_from()
 
         await comm.send_json_to({"type": "mark_read"})
-        await comm.send_json_to({"type": "send_message", "conversation_id": "conv-1", "body": "p"})
         resp = await comm.receive_json_from()
-        assert resp["type"] == "new_message"
+        assert resp["type"] == "error"
+        assert resp["code"] == "missing_conversation_id"
 
         await comm.disconnect()
 

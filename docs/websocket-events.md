@@ -101,9 +101,11 @@ Clients should maintain a **heartbeat** by sending `{"type": "ping"}` periodical
 
 **Group**: `user_{user_id}` / `chat_{conversation_id}`
 
-**Purpose**: Real-time direct messaging, typing indicators, presence, and WebRTC call signalling.
+**Purpose**: Real-time direct messaging, conversation/history fetches, group
+management, typing indicators, presence, search, and WebRTC call signalling.
 
-**Reference**: See `chats/consumers.py`.
+**Reference**: See `chats/consumers.py`, `docs/chat-websocket-api.md`, and
+`docs/chat-websocket-client-flow.md`.
 
 ---
 
