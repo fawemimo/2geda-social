@@ -7,6 +7,7 @@ from django.core.cache import cache
 
 CACHE_LIST_PREFIX = "user_list"
 CACHE_DETAIL_PREFIX = "user_detail"
+CACHE_ME_PREFIX = "user_me"
 CACHE_VERSION_KEY = "user_list_cache_version"
 CACHE_LIST_TTL = 3600
 CACHE_DETAIL_TTL = 3600
@@ -28,6 +29,10 @@ def make_user_list_cache_key(query_params: dict) -> str:
 
 def make_user_detail_cache_key(user_id: str) -> str:
     return f"{CACHE_DETAIL_PREFIX}:{user_id}"
+
+
+def make_user_me_cache_key(user_id: str) -> str:
+    return f"{CACHE_ME_PREFIX}:{user_id}"
 
 
 def bump_list_version() -> None:

@@ -7,7 +7,19 @@ from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnl
 from rest_framework.views import APIView
 
 from accounts.services.exceptions import ConflictError, NotFoundError, ServiceError, ValidationError
-from social.models import Comment, Post, Reshare
+from social.cache import (
+    bump_post_list_version,
+    delete_post_cache,
+    get_cached,
+    make_post_detail_cache_key,
+    make_post_list_cache_key,
+    make_post_trending_cache_key,
+    set_cached,
+    CACHE_POST_DETAIL_TTL,
+    CACHE_POST_LIST_TTL,
+    CACHE_POST_TRENDING_TTL,
+)
+from social.models import Comment, Like, Post, Reshare
 from social.serializers import (
     CommentCreateSerializer,
     CommentSerializer,
@@ -56,18 +68,48 @@ class PostViewSet(viewsets.ModelViewSet):
         )
 
     def list(self, request, *args, **kwargs):
+        user_id = str(getattr(request.user, "pk", "anon") or "anon")
+        page = int(request.query_params.get(self.paginator.page_query_param, 1))
+        page_size = int(
+            request.query_params.get(self.paginator.page_size_query_param, self.paginator.page_size)
+        )
+        cache_key = make_post_list_cache_key(
+            page, page_size, user_id, dict(request.query_params.items())
+        )
+        cached = get_cached(cache_key)
+        if cached is not None:
+            return APIResponse.success(data=cached)
+        
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+            response = self.get_paginated_response(serializer.data)
+            set_cached(cache_key, response.data, ttl=CACHE_POST_LIST_TTL)
+            return response
         serializer = self.get_serializer(queryset, many=True)
-        return APIResponse.success(data=serializer.data)
+        response = APIResponse.success(data=serializer.data)
+        set_cached(cache_key, response.data, ttl=CACHE_POST_LIST_TTL)
+        return response
 
     def retrieve(self, request, *args, **kwargs):
+        cache_key = make_post_detail_cache_key(str(kwargs["pk"]))
+        cached = get_cached(cache_key)
+        if cached is not None:
+            if request.user.is_authenticated:
+                cached["data"]["is_liked"] = Like.objects.filter(
+                    user=request.user,
+                    content_type=ContentType.objects.get_for_model(Post),
+                    object_id=kwargs["pk"],
+                ).exists()
+            else:
+                cached["data"]["is_liked"] = False
+            return APIResponse.success(data=cached)
         instance = self.get_object()
         serializer = self.get_serializer(instance)
-        return APIResponse.success(data=serializer.data)
+        response = APIResponse.success(data=serializer.data)
+        set_cached(cache_key, response.data, ttl=CACHE_POST_DETAIL_TTL)
+        return response
 
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop("partial", False)
@@ -77,6 +119,8 @@ class PostViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         post = PostService.update(instance=instance, validated_data=serializer.validated_data)
+        delete_post_cache(str(instance.pk))
+        bump_post_list_version()
         return APIResponse.success(
             message="Post updated successfully.",
             data=PostListSerializer(post, context={"request": request}).data,
@@ -91,6 +135,8 @@ class PostViewSet(viewsets.ModelViewSet):
         if instance.author != request.user:
             return APIResponse.error(message="You can only delete your own posts.", status_code=403)
         PostService.delete(instance=instance)
+        delete_post_cache(str(instance.pk))
+        bump_post_list_version()
         return APIResponse.success(message="Post deleted successfully.", status_code=200)
 
     @action(detail=True, methods=["post"])
@@ -105,6 +151,8 @@ class PostViewSet(viewsets.ModelViewSet):
             )
         except ServiceError as exc:
             return APIResponse.error(message=exc.message, status_code=exc.status_code)
+        delete_post_cache(str(post.pk))
+        bump_post_list_version()
         return APIResponse.success(
             message="Like toggled successfully.",
             data=result,
@@ -112,10 +160,17 @@ class PostViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"])
     def trending(self, request):
+        user_id = str(getattr(request.user, "pk", "anon") or "anon")
+        cache_key = make_post_trending_cache_key(user_id)
+        cached = get_cached(cache_key)
+        if cached is not None:
+            return APIResponse.success(data=cached)
         queryset = self.get_queryset().filter(visibility=PostVisibility.PUBLIC.value)[:10]
         serializer = self.get_serializer(queryset, many=True)
-        return APIResponse.success(data=serializer.data)
-
+        response = APIResponse.success(data=serializer.data)
+        set_cached(cache_key, response.data, ttl=CACHE_POST_TRENDING_TTL)
+        return response
+    
 
 class CommentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticatedOrReadOnly]

@@ -15,6 +15,7 @@ from accounts.cache import (
     CACHE_LIST_TTL,
     make_user_detail_cache_key,
     make_user_list_cache_key,
+    make_user_me_cache_key,
 )
 from accounts.serializers import (
     ConnectFilterSerializer,
@@ -374,10 +375,17 @@ class MeView(APIView):
 
     @swagger_auto_schema(responses={200: UserMeSerializer()})
     def get(self, request):
-        return APIResponse.success(
+        cache_key = make_user_me_cache_key(str(request.user.pk))
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(data=cached)
+
+        response = APIResponse.success(
             message="Current user fetched successfully.",
             data=UserMeSerializer(request.user).data,
         )
+        cache.set(cache_key, response.data, timeout=None)
+        return response
 
 
 class ProfileView(APIView):

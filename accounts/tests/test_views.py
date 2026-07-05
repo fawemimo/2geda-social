@@ -4,9 +4,11 @@ from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import AccessToken
 
+from accounts.cache import make_user_me_cache_key
 from accounts.models import UserDevice, UserProfile
 
 User = get_user_model()
@@ -607,6 +609,66 @@ class TestMeView:
         resp = client.get(self.url)
         assert resp.status_code == 200
         assert resp.data["data"]["email"] == "me@test.com"
+
+    def test_me_returns_cached_response_on_repeat_request(self):
+        user = User.objects.create_user(
+            email="cached@test.com", username="cacheduser", password="pass", is_active=True,
+        )
+        client = APIClient()
+        client.force_authenticate(user=user)
+        resp1 = client.get(self.url)
+        resp2 = client.get(self.url)
+        assert resp1.data == resp2.data
+
+    def test_me_cache_key_exists_after_first_request(self):
+        user = User.objects.create_user(
+            email="key@test.com", username="keyuser", password="pass", is_active=True,
+        )
+        client = APIClient()
+        client.force_authenticate(user=user)
+        client.get(self.url)
+        assert cache.get(make_user_me_cache_key(str(user.pk))) is not None
+
+    def test_me_cache_invalidated_on_user_update(self):
+        user = User.objects.create_user(
+            email="old@test.com", username="olduser", password="pass", is_active=True,
+        )
+        client = APIClient()
+        client.force_authenticate(user=user)
+        resp1 = client.get(self.url)
+        assert resp1.data["data"]["email"] == "old@test.com"
+        user.email = "new@test.com"
+        user.save()
+        resp2 = client.get(self.url)
+        assert resp2.data["data"]["email"] == "new@test.com"
+
+    def test_me_cache_invalidated_on_profile_change(self):
+        user = User.objects.create_user(
+            email="profile@test.com", username="profileuser", password="pass", is_active=True,
+        )
+        client = APIClient()
+        client.force_authenticate(user=user)
+        client.get(self.url)
+        profile = UserProfile.objects.get(user=user)
+        profile.display_name = "Changed"
+        profile.save()
+        assert cache.get(make_user_me_cache_key(str(user.pk))) is None
+
+    def test_me_cache_is_per_user(self):
+        user1 = User.objects.create_user(
+            email="u1@test.com", username="userone", password="pass", is_active=True,
+        )
+        user2 = User.objects.create_user(
+            email="u2@test.com", username="usertwo", password="pass", is_active=True,
+        )
+        client1 = APIClient()
+        client1.force_authenticate(user=user1)
+        client2 = APIClient()
+        client2.force_authenticate(user=user2)
+        resp1 = client1.get(self.url)
+        resp2 = client2.get(self.url)
+        assert resp1.data["data"]["email"] == "u1@test.com"
+        assert resp2.data["data"]["email"] == "u2@test.com"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

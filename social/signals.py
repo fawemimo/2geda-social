@@ -7,6 +7,8 @@ from django.utils import timezone
 from django.db import models
 from django.db.models import F
 
+from social.cache import bump_post_list_version, delete_post_cache
+
 
 # Create a UserProfile row whenever a new User is created.
 @receiver(post_save, sender="accounts.User")
@@ -59,11 +61,19 @@ def _update_like_counter(content_type, object_id, delta: int):
 def like_created(sender, instance, created, **kwargs):
     if created:
         _update_like_counter(instance.content_type, instance.object_id, +1)
+        from social.models import Post
+        if instance.content_type.model_class() is Post:
+            delete_post_cache(str(instance.object_id))
+            bump_post_list_version()
 
 
 @receiver(post_delete, sender="social.Like")
 def like_deleted(sender, instance, **kwargs):
     _update_like_counter(instance.content_type, instance.object_id, -1)
+    from social.models import Post
+    if instance.content_type.model_class() is Post:
+        delete_post_cache(str(instance.object_id))
+        bump_post_list_version()
 
 
 
@@ -78,6 +88,8 @@ def comment_created(sender, instance, created, **kwargs):
     Post.objects.filter(pk=instance.post_id).update(comments_count=F("comments_count") + 1)
     if instance.parent_id:
         Comment.objects.filter(pk=instance.parent_id).update(replies_count=F("replies_count") + 1)
+    delete_post_cache(str(instance.post_id))
+    bump_post_list_version()
 
 
 @receiver(post_delete, sender="social.Comment")
@@ -87,6 +99,8 @@ def comment_deleted(sender, instance, **kwargs):
     Post.objects.filter(pk=instance.post_id).update(comments_count=F("comments_count") - 1)
     if instance.parent_id:
         Comment.objects.filter(pk=instance.parent_id).update(replies_count=F("replies_count") - 1)
+    delete_post_cache(str(instance.post_id))
+    bump_post_list_version()
 
 
 
@@ -97,6 +111,8 @@ def reshare_created(sender, instance, created, **kwargs):
         from social.models import Post
         from django.db.models import F
         Post.objects.filter(pk=instance.original_post_id).update(reshares_count=F("reshares_count") + 1)
+        delete_post_cache(str(instance.original_post_id))
+        bump_post_list_version()
 
 
 @receiver(post_delete, sender="social.Reshare")
@@ -104,7 +120,14 @@ def reshare_deleted(sender, instance, **kwargs):
     from social.models import Post
     from django.db.models import F
     Post.objects.filter(pk=instance.original_post_id).update(reshares_count=F("reshares_count") - 1)
+    delete_post_cache(str(instance.original_post_id))
+    bump_post_list_version()
 
+
+@receiver([post_save, post_delete], sender="social.Post")
+def invalidate_post_cache(sender, instance, **kwargs):
+    delete_post_cache(str(instance.pk))
+    bump_post_list_version()
 
 
 # KYC → Profile verified badge

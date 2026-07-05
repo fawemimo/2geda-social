@@ -473,6 +473,47 @@ class TestPostList:
         resp = APIClient().get(self.url)
         assert resp.status_code == 200
 
+    def test_list_returns_cached_response_on_repeat_request(self):
+        user = User.objects.create_user(
+            email="lc@t.com", username="listcache", password="pass", is_active=True,
+        )
+        Post.objects.create(author=user, body="List cache test")
+        client = APIClient()
+        client.force_authenticate(user=user)
+        resp1 = client.get(self.url)
+        assert resp1.status_code == 200
+        post_ids_1 = {p["id"] for p in resp1.data["data"]}
+        resp2 = client.get(self.url)
+        assert resp2.status_code == 200
+        import sys; print(f"\nDEBUG resp2.data keys: {list(resp2.data.keys()) if hasattr(resp2.data, 'keys') else 'no keys'}; data type: {type(resp2.data.get('data', 'N/A'))}", file=sys.stderr)
+        post_ids_2 = {p["id"] for p in resp2.data["data"]}
+        assert post_ids_1 == post_ids_2
+
+    def test_list_cache_invalidated_on_post_create(self):
+        user = User.objects.create_user(
+            email="lc2@t.com", username="listcache2", password="pass", is_active=True,
+        )
+        client = APIClient()
+        client.force_authenticate(user=user)
+        resp = client.get(self.url)
+        count_before = len(resp.data["data"])
+        client.post(self.url, {"body": "Brand new"}, format="json")
+        resp = client.get(self.url)
+        assert len(resp.data["data"]) == count_before + 1
+
+    def test_list_cache_invalidated_on_post_delete(self):
+        user = User.objects.create_user(
+            email="lc3@t.com", username="listcache3", password="pass", is_active=True,
+        )
+        post = Post.objects.create(author=user, body="Delete me from list")
+        client = APIClient()
+        client.force_authenticate(user=user)
+        client.get(self.url)
+        client.delete(f"{API_ROOT}posts/{post.id}/")
+        resp = client.get(self.url)
+        ids = [p["id"] for p in resp.data["data"]]
+        assert str(post.id) not in ids
+
 
 class TestPostDetail:
     def url(self, pk):
@@ -499,6 +540,83 @@ class TestPostDetail:
         client.force_authenticate(user=user)
         resp = client.get(self.url(post.id))
         assert resp.status_code == 404
+
+    def test_retrieve_returns_cached_response_on_repeat_request(self):
+        user = User.objects.create_user(
+            email="dc@t.com", username="detailcache", password="pass", is_active=True,
+        )
+        post = Post.objects.create(author=user, body="Cache me")
+        client = APIClient()
+        client.force_authenticate(user=user)
+        resp1 = client.get(self.url(post.id))
+        resp2 = client.get(self.url(post.id))
+        assert resp1.status_code == 200
+        assert resp2.status_code == 200
+        assert resp1.data["data"]["body"] == resp2.data["data"]["body"]
+        assert resp1.data["data"]["id"] == resp2.data["data"]["id"]
+
+    def test_retrieve_cache_invalidated_on_post_update(self):
+        user = User.objects.create_user(
+            email="dc2@t.com", username="detailcache2", password="pass", is_active=True,
+        )
+        post = Post.objects.create(author=user, body="Before")
+        client = APIClient()
+        client.force_authenticate(user=user)
+        client.get(self.url(post.id))
+        client.patch(self.url(post.id), {"body": "After"}, format="json")
+        resp = client.get(self.url(post.id))
+        assert resp.data["data"]["body"] == "After"
+
+    def test_retrieve_cache_invalidated_on_post_delete(self):
+        user = User.objects.create_user(
+            email="dc3@t.com", username="detailcache3", password="pass", is_active=True,
+        )
+        post = Post.objects.create(author=user, body="Bye")
+        client = APIClient()
+        client.force_authenticate(user=user)
+        resp = client.get(self.url(post.id))
+        assert resp.status_code == 200
+        client.delete(self.url(post.id))
+        resp = client.get(self.url(post.id))
+        assert resp.status_code == 404
+
+    def test_retrieve_is_liked_patched_on_cache_hit(self):
+        user1 = User.objects.create_user(
+            email="u1@t.com", username="userone", password="pass", is_active=True,
+        )
+        user2 = User.objects.create_user(
+            email="u2@t.com", username="usertwo", password="pass", is_active=True,
+        )
+        post = Post.objects.create(author=user1, body="Like check")
+        Like.objects.create(
+            user=user1,
+            content_type=ContentType.objects.get_for_model(Post),
+            object_id=post.id,
+        )
+        client1 = APIClient()
+        client1.force_authenticate(user=user1)
+        client2 = APIClient()
+        client2.force_authenticate(user=user2)
+        resp1 = client1.get(self.url(post.id))
+        assert resp1.data["data"]["is_liked"] is True
+        resp2 = client2.get(self.url(post.id))
+        assert resp2.data["data"]["is_liked"] is False
+
+    def test_retrieve_is_liked_false_for_anonymous_on_cache_hit(self):
+        user = User.objects.create_user(
+            email="anon@t.com", username="anonuser", password="pass", is_active=True,
+        )
+        post = Post.objects.create(author=user, body="Anon check")
+        Like.objects.create(
+            user=user,
+            content_type=ContentType.objects.get_for_model(Post),
+            object_id=post.id,
+        )
+        client = APIClient()
+        client.force_authenticate(user=user)
+        client.get(self.url(post.id))
+        resp = APIClient().get(self.url(post.id))
+        assert resp.data["data"]["is_liked"] is False
 
 
 class TestPostUpdate:
@@ -826,6 +944,24 @@ class TestPostLike:
         resp = client.get(f"{API_ROOT}posts/{post.id}/")
         assert resp.status_code == 200
         assert resp.data["data"]["is_liked"] is True
+
+    def test_like_invalidates_detail_cache(self):
+        user = User.objects.create_user(
+            email="l2@t.com", username="liker2", password="pass", is_active=True,
+        )
+        post = Post.objects.create(
+            author=User.objects.create_user(email="a2@t.com", username="author2", password="pass", is_active=True),
+            body="Invalidate cache",
+        )
+        client = APIClient()
+        client.force_authenticate(user=user)
+        resp_before = client.get(f"{API_ROOT}posts/{post.id}/")
+        assert resp_before.status_code == 200
+        assert resp_before.data["data"]["is_liked"] is False
+        client.post(self.url(post.id))
+        resp_after = client.get(f"{API_ROOT}posts/{post.id}/")
+        assert resp_after.status_code == 200
+        assert resp_after.data["data"]["is_liked"] is True
 
 
 class TestCommentLike:
@@ -1239,6 +1375,74 @@ class TestRealTimeFollowPresence:
                 "follower_username": "follower",
             },
         )
+
+
+class TestPostTrending:
+    url = f"{API_ROOT}posts/trending/"
+
+    def test_trending_returns_only_public_posts(self):
+        user = User.objects.create_user(
+            email="tr@t.com", username="trender", password="pass", is_active=True,
+        )
+        Post.objects.create(author=user, body="Public post", visibility="public")
+        Post.objects.create(author=user, body="Private post", visibility="private")
+        client = APIClient()
+        client.force_authenticate(user=user)
+        resp = client.get(self.url)
+        bodies = [p["body"] for p in resp.data["data"]]
+        assert "Public post" in bodies
+        assert "Private post" not in bodies
+
+    def test_trending_limits_to_10(self):
+        user = User.objects.create_user(
+            email="tr2@t.com", username="trender2", password="pass", is_active=True,
+        )
+        for i in range(15):
+            Post.objects.create(author=user, body=f"Post {i}", visibility="public")
+        client = APIClient()
+        client.force_authenticate(user=user)
+        resp = client.get(self.url)
+        assert len(resp.data["data"]) <= 10
+
+    def test_trending_returns_cached_response_on_repeat_request(self):
+        user = User.objects.create_user(
+            email="tr3@t.com", username="trender3", password="pass", is_active=True,
+        )
+        Post.objects.create(author=user, body="Trending cached", visibility="public")
+        client = APIClient()
+        client.force_authenticate(user=user)
+        resp1 = client.get(self.url)
+        resp2 = client.get(self.url)
+        assert resp1.status_code == 200
+        assert resp2.status_code == 200
+        bodies_1 = {(p["body"], p["id"]) for p in resp1.data["data"]}
+        bodies_2 = {(p["body"], p["id"]) for p in resp2.data["data"]}
+        assert bodies_1 == bodies_2
+
+    def test_trending_cache_invalidated_on_new_post(self):
+        user = User.objects.create_user(
+            email="tr4@t.com", username="trender4", password="pass", is_active=True,
+        )
+        client = APIClient()
+        client.force_authenticate(user=user)
+        client.get(self.url)
+        Post.objects.create(author=user, body="New trending", visibility="public")
+        resp = client.get(self.url)
+        bodies = [p["body"] for p in resp.data["data"]]
+        assert "New trending" in bodies
+
+    def test_trending_cache_invalidated_on_post_delete(self):
+        user = User.objects.create_user(
+            email="tr5@t.com", username="trender5", password="pass", is_active=True,
+        )
+        post = Post.objects.create(author=user, body="To delete from trending", visibility="public")
+        client = APIClient()
+        client.force_authenticate(user=user)
+        client.get(self.url)
+        client.delete(f"{API_ROOT}posts/{post.id}/")
+        resp = client.get(self.url)
+        bodies = [p["body"] for p in resp.data["data"]]
+        assert "To delete from trending" not in bodies
 
 
 class TestRealTimeTrendingBroadcast:

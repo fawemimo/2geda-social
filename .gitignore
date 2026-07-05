@@ -186,6 +186,9 @@ cython_debug/
 # Ignore all data files
 .DS_Store
 .vscode/
+.idea/
+*.sqlite3
+.opencode/
 celery.sh
 archive
 nginx.md
