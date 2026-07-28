@@ -4,6 +4,8 @@ import logging
 from datetime import timedelta
 
 from celery import shared_task
+from django.conf import settings
+from django.contrib.auth.hashers import make_password
 from django.utils import timezone
 
 from accounts.services.interfaces import NotificationPayload
@@ -268,4 +270,79 @@ def cleanup_old_profile_image(
         body=f"Your profile {field.replace('_', ' ')} has been updated.",
         data={"type": "profile_image_updated", "field": field},
     )
+
+
+@shared_task(
+    name="accounts.tasks.hash_pending_password",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=3,
+    acks_late=True,
+)
+def hash_pending_password(*, identifier: str, raw_password: str) -> None:
+    from accounts.services.pending_registration import (
+        PendingRegistration,
+        PendingRegistrationStore,
+    )
+
+    store = PendingRegistrationStore()
+    pending = store.get(identifier)
+    if pending is None:
+        logger.warning("Pending registration %s expired before hash completed", identifier)
+        return
+
+    hashed = make_password(raw_password)
+    updated = PendingRegistration(
+        email=pending.email,
+        username=pending.username,
+        phone_number=pending.phone_number,
+        password_hash=hashed,
+        raw_password=None,
+        referral_code=pending.referral_code,
+        code_hash=pending.code_hash,
+        attempts=pending.attempts,
+        issued_at=pending.issued_at,
+        ip_address=pending.ip_address,
+    )
+    remaining_ttl = (
+        pending.issued_at
+        + timedelta(seconds=getattr(settings, "OTP_TTL_SECONDS", 600))
+        - timezone.now()
+    )
+    if remaining_ttl > timedelta(0):
+        store.replace(identifier, updated, ttl=remaining_ttl)
+        logger.info("Password hashed for pending registration %s", identifier)
+    else:
+        logger.warning("Pending registration %s expired, skipping hash update", identifier)
+
+
+@shared_task(
+    name="accounts.tasks.process_referral_reward",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=3,
+    acks_late=True,
+)
+def process_referral_reward(*, referral_code: str, referred_user_id: str) -> None:
+    from accounts.models import Referral, User
+    from accounts.services.rewards import reward_user
+    from utils.enum import PointRewardingMaps
+
+    try:
+        referrer = User.objects.only("id").get(referral_code=referral_code.upper())
+        referred_user = User.objects.get(pk=referred_user_id)
+    except User.DoesNotExist:
+        logger.error("Referrer or referred user not found for code=%s user=%s", referral_code, referred_user_id)
+        return
+
+    Referral.objects.get_or_create(referrer=referrer, referred_user=referred_user)
+
+    reward_user(
+        user=referrer,
+        points=PointRewardingMaps.REFFERAL.value,
+        action="referral",
+        source=referred_user,
+        auto_claim=True,
+    )
+    logger.info("Referral reward processed: referrer=%s referred=%s", referrer.pk, referred_user_id)
 

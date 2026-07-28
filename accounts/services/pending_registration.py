@@ -6,10 +6,23 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
+from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
 from .cache import hashed_key, make_key
+
+_redis_client: object | None = None
+
+
+def _get_redis() -> object | None:
+    global _redis_client
+    if _redis_client is None:
+        try:
+            _redis_client = cache.client.get_client()
+        except Exception:
+            return None
+    return _redis_client
 
 
 logger = logging.getLogger(__name__)
@@ -33,11 +46,12 @@ class PendingRegistration:
     username: str
     phone_number: str | None
     password_hash: str
-    referral_code: str | None
-    code_hash: str
-    attempts: int
-    issued_at: datetime
-    ip_address: str | None
+    raw_password: str | None = None
+    referral_code: str | None = None
+    code_hash: str = ""
+    attempts: int = 0
+    issued_at: datetime | None = None
+    ip_address: str | None = None
 
     def to_json(self) -> str:
         return json.dumps(
@@ -46,10 +60,11 @@ class PendingRegistration:
                 "username": self.username,
                 "phone_number": self.phone_number,
                 "password_hash": self.password_hash,
+                "raw_password": self.raw_password,
                 "referral_code": self.referral_code,
                 "code_hash": self.code_hash,
                 "attempts": self.attempts,
-                "issued_at": self.issued_at.isoformat(),
+                "issued_at": self.issued_at.isoformat() if self.issued_at else None,
                 "ip_address": self.ip_address,
             }
         )
@@ -62,10 +77,11 @@ class PendingRegistration:
             username=data["username"],
             phone_number=data.get("phone_number"),
             password_hash=data["password_hash"],
+            raw_password=data.get("raw_password"),
             referral_code=data.get("referral_code"),
-            code_hash=data["code_hash"],
+            code_hash=data.get("code_hash", ""),
             attempts=data.get("attempts", 0),
-            issued_at=datetime.fromisoformat(data["issued_at"]),
+            issued_at=datetime.fromisoformat(data["issued_at"]) if data.get("issued_at") else None,
             ip_address=data.get("ip_address"),
         )
 
@@ -75,6 +91,24 @@ class PendingRegistrationStore:
 
     def save(self, identifier: str, payload: PendingRegistration, *, ttl: timedelta) -> None:
         cache.set(_payload_key(identifier), payload.to_json(), timeout=ttl.total_seconds())
+
+    def save_bulk(
+        self,
+        items: list[tuple[str, PendingRegistration, timedelta]],
+    ) -> None:
+        client = _get_redis()
+        if client is not None and hasattr(client, "pipeline"):
+            pipe = client.pipeline()
+            for identifier, payload, ttl in items:
+                pipe.set(
+                    _payload_key(identifier),
+                    payload.to_json(),
+                    ex=int(ttl.total_seconds()),
+                )
+            pipe.execute()
+        else:
+            for identifier, payload, ttl in items:
+                self.save(identifier, payload, ttl=ttl)
 
     def get(self, identifier: str) -> PendingRegistration | None:
         raw = cache.get(_payload_key(identifier))

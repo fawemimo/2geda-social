@@ -8,6 +8,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.password_validation import validate_password
+from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.utils import timezone
@@ -39,16 +40,25 @@ logger = logging.getLogger(__name__)
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,40}$")
 
 
+MX_CACHE_TTL = 3600
+
+
 def _domain_has_mx(domain: str) -> bool:
+    cache_key = f"mx_check:{domain}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached == "1"
     import dns.exception
     import dns.resolver
     try:
         answers = dns.resolver.resolve(domain, "MX")
-        return len(answers) > 0
+        result = len(answers) > 0
     except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
-        return False
+        result = False
     except (dns.exception.Timeout, dns.resolver.LifetimeTimeout):
-        return True
+        result = True
+    cache.set(cache_key, "1" if result else "0", timeout=MX_CACHE_TTL)
+    return result
 
 
 # Returned from `start_registration()` — no User created yet.
@@ -132,7 +142,8 @@ class RegistrationService:
             email=email or "",
             username=username,
             phone_number=phone_number or None,
-            password_hash=make_password(password),
+            password_hash="__PENDING__",
+            raw_password=password,
             referral_code=(referral_code or None) and referral_code.upper(),
             code_hash=code_hash,
             attempts=0,
@@ -141,6 +152,9 @@ class RegistrationService:
         )
         self._store.save(identifier, payload, ttl=self._ttl)
         self._store.start_cooldown(identifier, ttl=self._cooldown)
+
+        from accounts.tasks import hash_pending_password as _hash_pending_password
+        _hash_pending_password.delay(identifier=identifier, raw_password=password)
 
         if email:
             logger.info(f"EMAIL OTP CODE IS {code} for email={email}")
@@ -189,6 +203,7 @@ class RegistrationService:
             username=existing.username,
             phone_number=existing.phone_number,
             password_hash=existing.password_hash,
+            raw_password=existing.raw_password,
             referral_code=existing.referral_code,
             code_hash=self._hasher.hash(code),
             attempts=0,
@@ -251,6 +266,7 @@ class RegistrationService:
                 username=pending.username,
                 phone_number=pending.phone_number,
                 password_hash=pending.password_hash,
+                raw_password=pending.raw_password,
                 referral_code=pending.referral_code,
                 code_hash=pending.code_hash,
                 attempts=pending.attempts + 1,
@@ -281,7 +297,10 @@ class RegistrationService:
 
     @transaction.atomic
     def _persist_user(self, pending: PendingRegistration) -> User:
-        referrer = self._resolve_referrer(pending.referral_code) if pending.referral_code else None
+        if pending.password_hash == "__PENDING__":
+            password_hash = make_password(pending.raw_password)
+        else:
+            password_hash = pending.password_hash
 
         try:
             user = User(
@@ -291,9 +310,9 @@ class RegistrationService:
                 is_active=True,
                 is_email_verified=bool(pending.email),
                 is_phone_verified=bool(pending.phone_number and not pending.email),
-                referred_by=referrer,
+                referred_by=None,
             )
-            user.password = pending.password_hash
+            user.password = password_hash
             user.save()
         except IntegrityError as exc:
             raise ConflictError(
@@ -303,17 +322,11 @@ class RegistrationService:
 
         UserProfile.objects.get_or_create(user=user)
 
-        if referrer:
-            from accounts.models import Referral
-            Referral.objects.get_or_create(referrer=referrer, referred_user=user)
-
-            from accounts.services.rewards import reward_user
-            reward_user(
-                user=referrer,
-                points=PointRewardingMaps.REFFERAL.value,
-                action="referral",
-                source=user,
-                auto_claim=True
+        if pending.referral_code:
+            from accounts.tasks import process_referral_reward as _process_referral_reward
+            _process_referral_reward.delay(
+                referral_code=pending.referral_code,
+                referred_user_id=str(user.pk),
             )
 
         return user
