@@ -41,8 +41,11 @@ class PostService:
 
         if reshare_of_id:
             try:
-                original = Post.objects.get(pk=reshare_of_id)
-                Reshare.objects.create(user=author, original_post=original, reshare_post=post)
+                Reshare.objects.create(
+                    user=author,
+                    original_post_id=reshare_of_id,
+                    reshare_post=post,
+                )
             except Exception:
                 logger.exception("Failed to create reshare record for post %s", post.id)
 
@@ -114,10 +117,19 @@ class PostService:
 
     @staticmethod
     def _attach_media(post: Post, media_ids: list[str]) -> None:
+        if not media_ids:
+            return
+        medias = {
+            str(m.pk): m
+            for m in Media.objects.filter(pk__in=media_ids).only("pk")
+        }
+        post_media_objs = []
         for idx, media_id in enumerate(media_ids):
-            try:
-                media = Media.objects.get(pk=media_id)
-            except Media.DoesNotExist:
+            media = medias.get(media_id)
+            if media is None:
                 logger.warning("Media %s not found, skipping", media_id)
                 continue
-            PostMedia.objects.create(post=post, media=media, position=idx)
+            post_media_objs.append(
+                PostMedia(post=post, media=media, position=idx)
+            )
+        PostMedia.objects.bulk_create(post_media_objs)

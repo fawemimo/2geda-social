@@ -42,7 +42,7 @@ class PostMediaSerializer(serializers.ModelSerializer):
 class PostListSerializer(serializers.ModelSerializer):
     author = UserMeSerializer(read_only=True)
     attachments = PostMediaSerializer(many=True, read_only=True)
-    is_liked = serializers.SerializerMethodField()
+    is_liked = serializers.BooleanField(read_only=True)
     reshare_of_detail = serializers.SerializerMethodField()
 
     class Meta:
@@ -54,12 +54,6 @@ class PostListSerializer(serializers.ModelSerializer):
             "likes_count", "comments_count", "reshares_count",
             "location_label", "created_at", "updated_at",
         ]
-
-    def get_is_liked(self, obj) -> bool:
-        request = self.context.get("request")
-        if request and request.user.is_authenticated:
-            return obj.likes.filter(user=request.user).exists()
-        return False
 
     def get_reshare_of_detail(self, obj):
         if obj.reshare_of_id:
