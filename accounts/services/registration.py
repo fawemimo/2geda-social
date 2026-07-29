@@ -157,7 +157,7 @@ class RegistrationService:
         _hash_pending_password.delay(identifier=identifier, raw_password=password)
 
         if email:
-            logger.info(f"EMAIL OTP CODE IS {code} for email={email}")
+            # logger.info(f"EMAIL OTP CODE IS {code} for email={email}")
             from accounts.tasks import send_otp_email as _send_otp_email
             _send_otp_email.delay(
                 to=email,
@@ -166,7 +166,7 @@ class RegistrationService:
                 username=username,
             )
         else:
-            logger.info(f"WHATSAPP OTP CODE IS {code} for phone={phone_number}")
+            # logger.info(f"WHATSAPP OTP CODE IS {code} for phone={phone_number}")S
             from accounts.tasks import send_otp_whatsapp as _send_otp_whatsapp
             _send_otp_whatsapp.delay(
                 to=phone_number,
