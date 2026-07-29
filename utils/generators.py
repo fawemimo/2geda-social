@@ -2,14 +2,14 @@ import string
 import secrets
 import uuid
 
-# Alphanumeric, uppercase, 8 chars — e.g. 'A3GX91KZ'.
+# Alphanumeric, uppercase, 6 chars — e.g. 'A3GX91'.
 
-def _generate_referral_code(length: int = 8) -> str:
+def _generate_referral_code(length: int = 6) -> str:
     alphabet = string.ascii_uppercase + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
-def generate_ticket_code(length: int = 8) -> str:
+def generate_ticket_code(length: int = 6) -> str:
     alphabet = string.ascii_uppercase + string.digits
     return "TKT-" + "".join(secrets.choice(alphabet) for _ in range(length))
 
