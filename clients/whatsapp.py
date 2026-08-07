@@ -33,9 +33,9 @@ class WhatsAppService:
         if not self.account_sid or not self.auth_token:
             logger.warning(
                 "TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN not set — "
-                "logging OTP code for phone %s: %s", to, code
+                "WhatsApp OTP not delivered."
             )
-            return {"status": "logged"}
+            return {"status": "not_configured"}
 
         normalized = self._normalize(to)
         to_whatsapp = f"whatsapp:{normalized}" if not normalized.startswith("whatsapp:") else normalized
@@ -60,9 +60,13 @@ class WhatsAppService:
             except Exception:
                 pass
             if not resp.ok:
-                logger.error("Twilio WhatsApp error %s: %s", resp.status_code, content)
+                # Twilio error bodies echo the recipient number, so log codes only.
+                logger.error(
+                    "Twilio WhatsApp error http=%s code=%s",
+                    resp.status_code, content.get("code", "unknown"),
+                )
                 resp.raise_for_status()
-            logger.info("WhatsApp OTP sent to %s: %s", to, content.get("sid", "unknown"))
+            logger.info("WhatsApp OTP sent (sid=%s)", content.get("sid", "unknown"))
             return content
         except requests.exceptions.RequestException as e:
             logger.error("WhatsApp network error: %s", e)

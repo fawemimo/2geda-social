@@ -157,7 +157,7 @@ class RegistrationService:
         _hash_pending_password.delay(identifier=identifier, raw_password=password)
 
         if email:
-            # logger.info(f"EMAIL OTP CODE IS {code} for email={email}")
+            
             from accounts.tasks import send_otp_email as _send_otp_email
             _send_otp_email.delay(
                 to=email,
@@ -166,7 +166,6 @@ class RegistrationService:
                 username=username,
             )
         else:
-            # logger.info(f"WHATSAPP OTP CODE IS {code} for phone={phone_number}")S
             from accounts.tasks import send_otp_whatsapp as _send_otp_whatsapp
             _send_otp_whatsapp.delay(
                 to=phone_number,
@@ -175,7 +174,8 @@ class RegistrationService:
             )
 
         expires_at = payload.issued_at + self._ttl
-        logger.info("Pending registration staged identifier=%s expires_at=%s", identifier, expires_at)
+        logger.info("Pending registration staged channel=%s expires_at=%s",
+                    "email" if email else "whatsapp", expires_at)
         return RegistrationDraftResult(
             email=email,
             phone_number=phone_number,
@@ -284,8 +284,17 @@ class RegistrationService:
         self._store.delete(identifier)
 
         tokens = self._tokens.issue(user, device_id=device_id)
-        logger.info("Registration completed user=%s identifier=%s", user.pk, identifier)
+        logger.info("Registration completed user=%s", user.pk)
 
+        
+        if email:
+            
+            from accounts.tasks import send_welcome_email
+            send_welcome_email.delay(
+                to=email,
+                username=email,
+            )          
+                
         return RegistrationCompleteResult(
             user_id=str(user.pk),
             email=user.email or None,

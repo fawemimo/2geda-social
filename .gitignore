@@ -196,3 +196,5 @@ aws.py
 celery.sh
 db.json
 staticfiles
+.pytest_cache/
+k6/

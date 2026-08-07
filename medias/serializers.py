@@ -15,7 +15,7 @@ class MediaResponseSerializer(serializers.ModelSerializer):
         fields = [
             "id", "cdn_url", "media_type", "mime_type",
             "original_filename", "file_size_bytes",
-            "width_px", "height_px", "duration_seconds",
+            "width_px", "height_px",
             "processing_status", "processing_error",
             "created_at", "updated_at",
         ]

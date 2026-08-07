@@ -62,7 +62,7 @@ class FireBasePushAPI:
         }
 
         try:
-            logger.info(f"Sending notification to token: {push_token} with payload: {payload}")
+            logger.info("Sending push notification.")
             response = requests.post(self.url, headers=self.get_headers(), json=payload)
             response_data = response.json()
             logger.info(f"Notification sent. Response: {response_data}")
@@ -91,7 +91,7 @@ class FireBasePushAPI:
         }
 
         try:
-            logger.info(f"Sending bulk notification to tokens: {tokens} with payload: {payload}")
+            logger.info("Sending bulk push notification to %s token(s).", len(tokens))
             response = requests.post(self.url, headers=self.get_headers(), json=payload)
             response_data = response.json()
             logger.info(f"Bulk notification sent. Response: {response_data}")

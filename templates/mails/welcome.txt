@@ -1,0 +1,25 @@
+<h1 class="mail-h1">Welcome to 2geda, {{ username|default:obj }} &#128075;</h1>
+
+<p class="mail-p">
+    Your account is ready. 2geda is where you post, chat, run polls, sell tickets and
+    keep up with the people around you &mdash; all in one place.
+</p>
+
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:8px 0 28px;">
+    <tr>
+        <td>
+            <a href="{{ cta_url|default:site }}" target="_blank" class="mail-btn">Open 2geda</a>
+        </td>
+    </tr>
+</table>
+
+<p class="mail-p" style="margin-bottom:8px;"><strong style="color:#101828;">A good place to start:</strong></p>
+<p class="mail-p" style="margin-bottom:6px;">&bull; Add a photo and a short bio to your profile.</p>
+<p class="mail-p" style="margin-bottom:6px;">&bull; Follow a few people so your feed fills up.</p>
+<p class="mail-p">&bull; Share your first post.</p>
+
+<div class="mail-divider"></div>
+
+<p class="mail-muted">
+    Need a hand? Just reply to this email &mdash; a real person reads it.
+</p>

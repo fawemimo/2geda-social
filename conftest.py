@@ -17,6 +17,36 @@ def _clear_cache_between_tests():
     cache.clear()
 
 
+# Outbound mail block. CELERY_TASK_ALWAYS_EAGER runs send_otp_email/
+# send_welcome_email inline, and the Resend client talks HTTP directly rather
+# than going through EMAIL_BACKEND — so locmem does not contain it. Without
+# this, the suite posts to the live Resend API using the real key in the
+# environment. Request `resend_outbox` to assert on what would have been sent.
+
+
+class _FakeResendResponse:
+    status_code = 200
+    text = '{"id": "test-message-id"}'
+
+    def raise_for_status(self) -> None:
+        pass
+
+    def json(self) -> dict[str, str]:
+        return {"id": "test-message-id"}
+
+
+@pytest.fixture(autouse=True)
+def resend_outbox(monkeypatch) -> list[dict[str, Any]]:
+    sent: list[dict[str, Any]] = []
+
+    def _blocked_post(url, json=None, headers=None, timeout=None, **kwargs):
+        sent.append(json or {})
+        return _FakeResendResponse()
+
+    monkeypatch.setattr("clients.resend.emails.requests.post", _blocked_post)
+    return sent
+
+
 # Fakes for service-layer interfaces.
 
 

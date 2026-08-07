@@ -3,45 +3,47 @@ from __future__ import annotations
 import logging
 
 from django.conf import settings
-from django.core.mail import EmailMultiAlternatives
-from django.template.loader import render_to_string
+
+from clients.resend.emails import EmailService
 
 from .interfaces import INotificationSender, NotificationPayload
 
 
 logger = logging.getLogger(__name__)
 
-# Direct SMTP send. In request-path code prefer dispatching the
+# Delivered through Resend. `payload.template` names a content body in
+# templates/mails/ ("otp", "welcome", ...) which is rendered into the shared
+# templates/_template.html design shell. In request-path code prefer dispatching
+# the matching Celery task rather than calling this inline.
 
 class EmailNotificationSender(INotificationSender):
 
+    from_name = "2geda Social App"
+    default_template = "generic"
+
     def send(self, payload: NotificationPayload) -> None:
-        html_body = None
-        text_body = payload.body
+        template = payload.template or self.default_template
+        
+        values = dict(payload.context or {})
+        values.setdefault("body", payload.body)
 
-        if payload.template:
-            try:
-                html_body = render_to_string(payload.template, payload.context or {})
-            except Exception:
-                logger.exception("Failed to render email template %s", payload.template)
-                html_body = None
-
-        message = EmailMultiAlternatives(
+        response = EmailService(template).send_email(
+            to=payload.to,
+            obj=payload.body,
+            from_email=getattr(settings, "EMAIL_FROM_NAME", self.from_name),
+            other_values=values,
             subject=payload.subject,
-            body=text_body,
-            from_email=getattr(settings, "DEFAULT_FROM_EMAIL", None),
-            to=[payload.to],
         )
-        if html_body:
-            message.attach_alternative(html_body, "text/html")
-        message.send(fail_silently=False)
 
-# Placeholder for the SMS provider (Twilio / Termii / etc). Concrete
+        if not response:
+            raise RuntimeError(f"Resend failed to deliver '{template}'")
+
+        logger.info("Email '%s' sent (id=%s)", template, response.get("id"))
 
 class SMSNotificationSender(INotificationSender):
 
     def send(self, payload: NotificationPayload) -> None:
-        logger.info("SMS to %s (subject=%s): %s", payload.to, payload.subject, payload.body)
+        logger.info("SMS dispatched (subject=%s)", payload.subject)
 
 
 class WhatsAppNotificationSender(INotificationSender):
@@ -51,10 +53,9 @@ class WhatsAppNotificationSender(INotificationSender):
         code = (payload.context or {}).get("code", payload.body)
         WhatsAppService().send_otp(to=payload.to, code=code)
 
-# Used by tests / dry-runs.
 
 class NullNotificationSender(INotificationSender):
 
     def send(self, payload: NotificationPayload) -> None:
-        logger.debug("NullNotificationSender → %s: %s", payload.to, payload.body)
+        logger.debug("NullNotificationSender dropped message (subject=%s)", payload.subject)
 

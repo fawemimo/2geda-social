@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from accounts.services.interfaces import NotificationPayload
 from accounts.services.notifications import (
+    EmailNotificationSender,
     SMSNotificationSender,
 )
 
@@ -43,16 +44,23 @@ def send_otp_email(*, to: str, code: str, purpose: str, username: str = "") -> N
         f"Your verification code is: {code}\n\n"
         f"This code expires shortly. If you did not request it, please ignore this email."
     )
-    logger.info(f"Email sent to {to} (subject={subject}): {body}")
-    # EmailNotificationSender().send(
-    #     NotificationPayload(
-    #         to=to,
-    #         subject=subject,
-    #         body=body,
-    #         template="accounts/emails/otp.html",
-    #         context={"code": code, "username": username, "purpose": purpose},
-    #     )
-    # )
+    
+    EmailNotificationSender().send(
+        NotificationPayload(
+            to=to,
+            subject=subject,
+            body=body,
+            template="otp",
+            context={
+                "code": code,
+                "username": username,
+                "purpose": purpose,
+                "expires_in_minutes": max(
+                    1, getattr(settings, "OTP_TTL_SECONDS", 600) // 60
+                ),
+            },
+        )
+    )
 
 
 @shared_task(
@@ -85,7 +93,7 @@ def send_otp_sms(*, to: str, code: str, purpose: str) -> None:
 )
 def send_otp_whatsapp(*, to: str, code: str, purpose: str) -> None:
     from accounts.services.notifications import WhatsAppNotificationSender
-    logger.info(f"WhatsApp OTP to {to} (purpose={purpose}): {code}")
+    logger.info("WhatsApp OTP dispatched (purpose=%s)", purpose)
     # WhatsAppNotificationSender().send(
     #     NotificationPayload(
     #         to=to,
@@ -103,16 +111,15 @@ def send_otp_whatsapp(*, to: str, code: str, purpose: str) -> None:
     max_retries=3,
 )
 def send_welcome_email(*, to: str, username: str) -> None:
-    logger.info(f"Welcome email sent to {to} (username={username})")
-    # EmailNotificationSender().send(
-    #     NotificationPayload(
-    #         to=to,
-    #         subject="Welcome aboard",
-    #         body=f"Hi {username}, welcome to the platform!",
-    #         template="accounts/emails/welcome.html",
-    #         context={"username": username},
-    #     )
-    # )
+    EmailNotificationSender().send(
+        NotificationPayload(
+            to=to,
+            subject="Welcome to 2geda",
+            body=f"Hi {username}, welcome to the platform!",
+            template="welcome",
+            context={"username": username},
+        )
+    )
 
 
 # Periodic cleanup. Deletes OTP rows that have been used OR expired
@@ -171,9 +178,6 @@ def process_user_location(user_id: str, latitude: str, longitude: str, ip_addres
     except Exception as exc:
         logger.warning("Failed to warm Redis cache: %s", exc)
 
-    logger.info(f"UserLocation created for {user_id} at {latitude},{longitude}")
-
-
 @shared_task(
     name="accounts.tasks.async_send_connection_request",
     autoretry_for=(Exception,),
@@ -227,7 +231,6 @@ def send_user_push_notification(*, user_id: str, title: str, body: str, data: di
 
     tokens = DeviceService.get_trusted_push_tokens(user)
     if not tokens:
-        logger.info("No trusted push tokens for user %s", user_id)
         return
 
     firebase = FireBasePushAPI()
@@ -288,7 +291,7 @@ def hash_pending_password(*, identifier: str, raw_password: str) -> None:
     store = PendingRegistrationStore()
     pending = store.get(identifier)
     if pending is None:
-        logger.warning("Pending registration %s expired before hash completed", identifier)
+        logger.warning("Pending registration expired before hash completed")
         return
 
     hashed = make_password(raw_password)
@@ -311,9 +314,8 @@ def hash_pending_password(*, identifier: str, raw_password: str) -> None:
     )
     if remaining_ttl > timedelta(0):
         store.replace(identifier, updated, ttl=remaining_ttl)
-        logger.info("Password hashed for pending registration %s", identifier)
     else:
-        logger.warning("Pending registration %s expired, skipping hash update", identifier)
+        logger.warning("Pending registration expired, skipping hash update")
 
 
 @shared_task(
@@ -332,7 +334,7 @@ def process_referral_reward(*, referral_code: str, referred_user_id: str) -> Non
         referrer = User.objects.only("id").get(referral_code=referral_code.upper())
         referred_user = User.objects.get(pk=referred_user_id)
     except User.DoesNotExist:
-        logger.error("Referrer or referred user not found for code=%s user=%s", referral_code, referred_user_id)
+        logger.error("Referrer or referred user not found for user=%s", referred_user_id)
         return
 
     Referral.objects.get_or_create(referrer=referrer, referred_user=referred_user)
@@ -344,5 +346,3 @@ def process_referral_reward(*, referral_code: str, referred_user_id: str) -> Non
         source=referred_user,
         auto_claim=True,
     )
-    logger.info("Referral reward processed: referrer=%s referred=%s", referrer.pk, referred_user_id)
-

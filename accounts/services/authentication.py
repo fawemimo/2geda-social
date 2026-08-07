@@ -89,7 +89,7 @@ class AuthenticationService:
                 limit=self._max_failed,
                 window=timedelta(seconds=self._lockout_seconds),
             )
-            logger.info("Failed login identifier=%s attempt=%s", identifier, count)
+            logger.info("Failed login attempt=%s", count)
             if not allowed:
                 self._rate_limiter.start_cooldown(
                     lockout_key, ttl=timedelta(seconds=self._lockout_seconds)

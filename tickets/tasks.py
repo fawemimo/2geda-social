@@ -18,26 +18,47 @@ logger = logging.getLogger(__name__)
     max_retries=3,
     acks_late=True,
 )
-def release_expired_reservations() -> dict:
+def release_expired_reservations(*, batch_size: int = 500) -> dict:
     from tickets.models import PriceTier, Ticket, TicketPurchase
 
     now = timezone.now()
-    expired_purchases = TicketPurchase.objects.filter(
-        payment_status=PaymentStatus.PENDING.value,
-        reserved_until__lte=now,
-    ).select_for_update(skip_locked=True)
+    # Listed without a lock, then locked one at a time below. Bounded so a
+    # backlog cannot hold locks open for the length of an unbounded sweep.
+    candidate_ids = list(
+        TicketPurchase.objects.filter(
+            payment_status=PaymentStatus.PENDING.value,
+            reserved_until__lte=now,
+        ).values_list("id", flat=True)[:batch_size]
+    )
 
     released_count = 0
-    for purchase in expired_purchases:
+    for purchase_id in candidate_ids:
+        # select_for_update() must be evaluated inside the transaction that
+        # holds the lock — evaluating it outside one raises
+        # TransactionManagementError. The filter is re-applied here so the row
+        # is re-checked under the lock, not as it looked when we listed it.
         with transaction.atomic():
+            purchase = (
+                TicketPurchase.objects.select_for_update(skip_locked=True)
+                .filter(
+                    id=purchase_id,
+                    payment_status=PaymentStatus.PENDING.value,
+                    reserved_until__lte=now,
+                )
+                .first()
+            )
+            # Held by another worker, or paid/expired since we listed it.
+            if purchase is None:
+                continue
+
             tickets = Ticket.objects.filter(purchase=purchase)
-            if tickets.exists():
-                tier_id = tickets.first().price_tier_id
-                qty = purchase.quantity
+            tier_id = tickets.values_list("price_tier_id", flat=True).first()
+            if tier_id is not None:
                 PriceTier.objects.filter(id=tier_id).update(
-                    quantity_reserved=models.F("quantity_reserved") - qty
+                    quantity_reserved=models.F("quantity_reserved") - purchase.quantity
                 )
                 tickets.update(status=TicketStatus.CANCELLED.value)
+
             purchase.payment_status = "expired"
             purchase.save(update_fields=["payment_status"])
             released_count += 1
@@ -89,9 +110,9 @@ def send_purchase_confirmation_email(purchase_id: str) -> None:
             recipient_list=[buyer.email],
             fail_silently=False,
         )
-        logger.info("Purchase confirmation email sent to %s", buyer.email)
+        logger.info("Purchase confirmation email sent for purchase %s", purchase_id)
     except Exception as e:
-        logger.error("Failed to send email to %s: %s", buyer.email, e)
+        logger.error("Failed to send email for purchase %s: %s", purchase_id, e)
 
 
 @shared_task(

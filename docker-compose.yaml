@@ -1,10 +1,7 @@
-#docker-compose.yml
-version: '3.8'
-
 services:
   redis:
     image: redis:7.2 
-    container_name: redis_server
+    container_name: redis_server_2geda
     restart: unless-stopped  
     command: >
       redis-server
@@ -49,7 +46,7 @@ services:
   db:
     image: postgres:17
     restart: always
-    container_name: postgres
+    container_name: postgres_2geda
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
@@ -101,7 +98,7 @@ services:
       celery -A core.celery worker
       --autoscale=4,1
       --loglevel=info
-      --queues=default,high_priority
+      --queues=default,otp,notifications,media
       --prefetch-multiplier=2
       --max-tasks-per-child=500
       --max-memory-per-child=100000
