@@ -102,11 +102,13 @@ def generate_presigned_url(file_name: str, *, expires_in: int = 3600) -> dict:
 )
 def delete_media_file(storage_key: str) -> bool:
     """Delete a file from S3 by its storage key."""
-    from clients.aws.storage import delete_file
+    # delete_file() parses a full CDN URL; this task is handed a bare key, so it
+    # must use the key-based helper or every deletion silently no-ops.
+    from clients.aws.storage import delete_object
 
     logger.info("Deleting S3 file | key=%s", storage_key)
     try:
-        result = delete_file(storage_key)
+        result = delete_object(storage_key)
         if result:
             logger.info("S3 file deleted | key=%s", storage_key)
         else:

@@ -203,6 +203,68 @@ def upload_file(file, *, ext: str | None = None) -> dict[str, Any]:
     return metadata
 
 
+def build_key(media_type: str, ext: str) -> str:
+    """Public wrapper over the internal key layout.
+
+    Lets a caller reserve the final object key before the bytes are uploaded, so
+    the CDN URL can be returned to the client while the upload runs async.
+    """
+    return _get_path(media_type, ext)
+
+
+def public_url(key: str) -> str:
+    return f"{AWS_S3_CUSTOM_DOMAIN}/{key}"
+
+
+def upload_fileobj_to_key(
+    fileobj,
+    key: str,
+    *,
+    content_type: str,
+    cache_control: str = "public, max-age=31536000, immutable",
+) -> str:
+    """Upload an already-prepared buffer to a caller-chosen key.
+
+    Unlike `upload_file`, this performs no classification or image processing —
+    the caller has done that. Returns the public URL.
+    """
+    _ensure_credentials()
+
+    s3 = _get_client()
+    try:
+        s3.upload_fileobj(
+            fileobj,
+            AWS_STORAGE_BUCKET_NAME,
+            key,
+            ExtraArgs={
+                "ContentType": content_type,
+                "ContentDisposition": "inline",
+                "CacheControl": cache_control,
+            },
+        )
+    except ClientError as e:
+        logger.error("S3 upload failed for key %s: %s", key, e)
+        raise ValueError(str(e)) from e
+
+    return public_url(key)
+
+
+def delete_object(key: str) -> bool:
+    """Delete by object key. Prefer this over `delete_file` where the key is known."""
+    if not key:
+        return False
+
+    _ensure_credentials()
+    s3 = _get_client()
+    try:
+        s3.delete_object(Bucket=AWS_STORAGE_BUCKET_NAME, Key=key)
+        logger.info("S3 delete success: %s", key)
+        return True
+    except Exception as e:
+        logger.error("S3 delete failed for key %s: %s", key, e)
+        return False
+
+
 def generate_presigned_upload_url(
     file_name: str,
     *,

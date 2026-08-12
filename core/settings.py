@@ -25,7 +25,6 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
-    # 'daphne',
     'django.contrib.staticfiles',
     'django.contrib.postgres',
 
@@ -38,9 +37,7 @@ INSTALLED_APPS = [
     'corsheaders',
     "drf_yasg",
     'drf_spectacular',
-    # "rest_framework_swagger",
     'django_celery_beat',
-    # 'django_json_widget',
 
     # local
     'accounts.apps.AccountsConfig',
@@ -162,7 +159,6 @@ SWAGGER_SETTINGS = {
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
-# STATIC_URL = 'static/'
 STATIC_URL = "/static/"
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 

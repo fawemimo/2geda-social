@@ -241,38 +241,163 @@ def send_user_push_notification(*, user_id: str, title: str, body: str, data: di
             logger.exception("Failed to send push to token for user %s", user_id)
 
 
+# Delete an old/replaced profile image from S3 + DB and notify the user.
 @shared_task(
     name="accounts.tasks.cleanup_old_profile_image",
     autoretry_for=(Exception,),
     retry_backoff=True,
     max_retries=3,
     acks_late=True,
-# Delete old profile image from S3 + DB and notify the user.
 )
 def cleanup_old_profile_image(
     *,
     media_id: str,
     user_id: str,
     field: str,
+    notify: bool = True,
 ) -> None:
-    from clients.aws.storage import delete_file
+    from clients.aws.storage import delete_object
     from medias.models import Media
 
-    try:
-        old_media = Media.objects.get(pk=media_id)
-    except Media.DoesNotExist:
+    old_media = Media.objects.filter(pk=media_id).first()
+    if old_media is None:
         logger.warning("Old media %s already gone, skipping cleanup", media_id)
         return
 
-    delete_file(old_media.cdn_url)
+    # storage_key is authoritative; cdn_url is only a rendering of it.
+    if old_media.storage_key:
+        delete_object(old_media.storage_key)
     old_media.delete()
 
-    send_user_push_notification.delay(
-        user_id=user_id,
-        title="Profile Updated",
-        body=f"Your profile {field.replace('_', ' ')} has been updated.",
-        data={"type": "profile_image_updated", "field": field},
+    if notify:
+        send_user_push_notification.delay(
+            user_id=user_id,
+            title="Profile Updated",
+            body=f"Your profile {field.replace('_', ' ')} has been updated.",
+            data={"type": "profile_image_updated", "field": field},
+        )
+
+
+# Decode, downscale and upload a staged profile image, then swap it in.
+@shared_task(
+    name="accounts.tasks.process_profile_image",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=120,
+    retry_jitter=True,
+    max_retries=3,
+    acks_late=True,
+)
+def process_profile_image(
+    *,
+    media_id: str,
+    user_id: str,
+    field: str,
+    staging_key: str,
+) -> dict:
+    from django.db import transaction as db_transaction
+
+    from accounts.models import UserProfile
+    from clients.aws.storage import upload_fileobj_to_key
+    from medias.models import Media
+    from utils import images
+    from utils.enum import ProcessingStatus
+    from utils.staging import drop_blob, peek_blob
+
+    media = Media.objects.filter(pk=media_id).first()
+    if media is None:
+        logger.warning("Media %s vanished before processing", media_id)
+        return {"success": False, "error": "media_missing"}
+
+    # Peek rather than claim: a retry after a transient S3 error must still
+    # find the bytes. The blob is dropped explicitly once we are done.
+    raw = peek_blob(staging_key)
+    if raw is None:
+        logger.error("Staged bytes expired for media %s", media_id)
+        _mark_media_failed(media, "Upload expired before processing.")
+        return {"success": False, "error": "staging_expired"}
+
+    try:
+        processed = images.normalize(raw, max_edge=images.max_edge_for(field))
+    except images.ImageValidationError as exc:
+        logger.error("Profile image rejected for media %s: %s", media_id, exc)
+        drop_blob(staging_key)
+        _mark_media_failed(media, str(exc))
+        return {"success": False, "error": "invalid_image"}
+
+    # Raises on failure so autoretry_for kicks in; the blob survives for it.
+    upload_fileobj_to_key(
+        processed["buffer"],
+        media.storage_key,
+        content_type=processed["content_type"],
     )
+    drop_blob(staging_key)
+
+    old_media_id = None
+    with db_transaction.atomic():
+        # Lock the profile so two concurrent uploads to the same slot cannot
+        # interleave and strand an object in S3 with nothing pointing at it.
+        profile = (
+            UserProfile.objects.select_for_update()
+            .filter(user_id=user_id)
+            .first()
+        )
+        if profile is None:
+            logger.error("Profile missing for user %s", user_id)
+            return {"success": False, "error": "profile_missing"}
+
+        media.refresh_from_db()
+        media.cdn_url = _public_media_url(media.storage_key)
+        media.mime_type = processed["content_type"]
+        media.file_size_bytes = processed["file_size_bytes"]
+        media.width_px = processed["width"]
+        media.height_px = processed["height"]
+        media.processing_status = ProcessingStatus.READY.value
+        media.processing_error = ""
+        media.save(
+            update_fields=[
+                "cdn_url", "mime_type", "file_size_bytes",
+                "width_px", "height_px", "processing_status", "processing_error",
+            ]
+        )
+
+        previous = getattr(profile, field, None)
+        if previous is not None and str(previous.pk) != str(media.pk):
+            old_media_id = str(previous.pk)
+
+        setattr(profile, field, media)
+        profile.save(update_fields=[field])
+
+    if old_media_id:
+        cleanup_old_profile_image.delay(
+            media_id=old_media_id,
+            user_id=user_id,
+            field=field,
+        )
+    else:
+        send_user_push_notification.delay(
+            user_id=user_id,
+            title="Profile Updated",
+            body=f"Your profile {field.replace('_', ' ')} has been updated.",
+            data={"type": "profile_image_updated", "field": field},
+        )
+
+    logger.info("Profile image ready | media=%s field=%s", media_id, field)
+    return {"success": True, "media_id": media_id, "url": media.cdn_url}
+
+
+def _mark_media_failed(media, reason: str) -> None:
+    from utils.enum import ProcessingStatus
+
+    media.processing_status = ProcessingStatus.FAILED.value
+    media.processing_error = reason[:500]
+    media.save(update_fields=["processing_status", "processing_error"])
+
+
+def _public_media_url(key: str) -> str:
+    from clients.aws.storage import public_url
+
+    return public_url(key)
 
 
 @shared_task(

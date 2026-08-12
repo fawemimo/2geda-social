@@ -1,18 +1,12 @@
 import hashlib
 import hmac
-import json
 import logging
-
 import requests
 from django.conf import settings
-from django.db import transaction
-from django.utils import timezone
-
 from tickets.models import Event, PaymentTransaction, Payout, SellerProfile, Ticket
-from tickets.services.exceptions import DuplicateTransaction, PaymentVerificationFailed
+from tickets.services.exceptions import PaymentVerificationFailed
 from utils.enum import PaymentStatus, TransactionType
-from utils.generators import generate_payout_reference, generate_transaction_reference
-
+from utils.generators import generate_payout_reference
 logger = logging.getLogger(__name__)
 
 PAYSTACK_BASE = "https://api.paystack.co"
@@ -114,12 +108,7 @@ class PaymentService:
         if existing:
             logger.warning("Duplicate webhook for reference: %s", reference)
             return
-
-        purchase_ref = (
-            data.get("metadata", {}).get("purchase_id")
-            or data.get("reference", "")
-        )
-
+        
         TicketService.verify_purchase(reference)
 
         logger.info("Webhook charge.success processed: %s", reference)
@@ -141,7 +130,6 @@ class PaymentService:
     @staticmethod
     def _handle_refund(data: dict) -> None:
         reference = data.get("reference", "")
-        transaction_ref = data.get("transaction_reference", "")
         if not reference:
             return
 

@@ -1,8 +1,4 @@
-from django.shortcuts import render
-
-# Create your views here.
 import json
-
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
@@ -55,9 +51,6 @@ from utils.enum import EventStatus, TicketStatus
 from utils.responses import APIResponse
 
 
-# ── Categories ────────────────────────────────────────────────────────────
-
-
 class EventCategoryViewSet(viewsets.ModelViewSet):
     queryset = EventCategory.objects.filter(is_deleted=False, is_active=True).order_by("name")
     serializer_class = EventCategorySerializer
@@ -65,9 +58,6 @@ class EventCategoryViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save()
-
-
-# ── Seller ──
 
 
 class SellerApplyView(APIView):
@@ -145,9 +135,6 @@ class SellerApprovalView(APIView):
             )
         except Exception as e:
             return APIResponse.error(message=str(e))
-
-
-# ── Events ──
 
 
 class EventViewSet(viewsets.ModelViewSet):
@@ -349,9 +336,6 @@ class EventViewSet(viewsets.ModelViewSet):
         return APIResponse.success(data=serializer.data)
 
 
-# ── Tickets / Purchase ─────────────────────────────────────────────────────
-
-
 class TicketPurchaseInitView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -417,8 +401,6 @@ class MyTicketsView(APIView):
         serializer = TicketSerializer(tickets, many=True)
         return APIResponse.success(data=serializer.data)
 
-
-# Disputes 
 
 
 class DisputeViewSet(viewsets.ModelViewSet):
@@ -514,9 +496,6 @@ class DisputeViewSet(viewsets.ModelViewSet):
             )
 
 
-# ── Reports ─
-
-
 class EventReportView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -591,8 +570,6 @@ class SellerReportDownloadView(APIView):
         return response
 
 
-# ── Seller Financials ──────────────────────────────────────────────────────
-
 
 class SellerTransactionView(APIView):
     permission_classes = [IsAuthenticated]
@@ -622,9 +599,6 @@ class SellerPayoutView(APIView):
         return APIResponse.success(data=serializer.data)
 
 
-# ── Paystack Webhook ───────────────────────────────────────────────────────
-
-
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def paystack_webhook(request):
@@ -651,8 +625,6 @@ def paystack_webhook(request):
 
     return APIResponse.success(message="Webhook received.")
 
-
-# ── Ticket verification (public) ────────────────────────────────────────────
 
 
 @api_view(["GET"])

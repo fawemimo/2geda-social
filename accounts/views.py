@@ -411,70 +411,96 @@ class ProfileView(APIView):
 
 
 
-def _dispatch_profile_image_upload(request, field: str) -> APIResponse:
-    from clients.aws.storage import upload_file
+def _dispatch_profile_image_upload(request, field: str) -> Response:
+    """Accept a profile image and hand the heavy work to Celery.
+
+    The request thread only validates, parks the bytes in Redis and reserves the
+    final S3 key — so it returns in single-digit milliseconds regardless of how
+    slow S3 is. Decoding, downscaling and uploading happen on a worker.
+    """
+    from django.db import transaction
+
+    from accounts.tasks import process_profile_image
+    from clients.aws.storage import build_key, public_url
     from medias.models import Media
+    from utils.enum import MediaType, ProcessingStatus
+    from utils.staging import stage_blob
 
     data = ProfileImageUploadSerializer(data=request.data)
     data.is_valid(raise_exception=True)
     file = data.validated_data["file"]
 
-    result = upload_file(file)
+    file.seek(0)
+    staging_key = stage_blob(file.read())
 
-    profile = request.user.profile
-    old_media = getattr(profile, field, None)
+    # Reserve the object key now so the client learns its final URL up front and
+    # can prefetch or optimistically render it.
+    storage_key = build_key(MediaType.IMAGE.value, ".jpg")
+    final_url = public_url(storage_key)
 
-    media = Media.objects.create(
-        owner=request.user,
-        media_type="image",
-        storage_key=result["key"],
-        cdn_url=result["url"],
-        original_filename=file.name,
-        mime_type=result["content_type"],
-        file_size_bytes=result["file_size_bytes"],
-        width_px=result.get("width"),
-        height_px=result.get("height"),
-        processing_status="ready",
-    )
-    setattr(profile, field, media)
-    profile.save(update_fields=[field])
-
-    if old_media:
-        from accounts.tasks import cleanup_old_profile_image
-
-        cleanup_old_profile_image.delay(
-            media_id=str(old_media.pk),
-            user_id=str(request.user.id),
-            field=field,
+    with transaction.atomic():
+        media = Media.objects.create(
+            owner=request.user,
+            media_type=MediaType.IMAGE.value,
+            storage_key=storage_key,
+            cdn_url="",
+            original_filename=(getattr(file, "name", "") or "")[:255],
+            processing_status=ProcessingStatus.PENDING.value,
+        )
+        # on_commit, or the worker can start before this row is visible to it.
+        transaction.on_commit(
+            lambda: process_profile_image.delay(
+                media_id=str(media.id),
+                user_id=str(request.user.id),
+                field=field,
+                staging_key=staging_key,
+            )
         )
 
     return APIResponse.success(
-        message=f"Your profile {field} has been updated.",
-        data={field: result["url"]},
+        message=f"Your profile {field.replace('_', ' ')} is being processed.",
+        data={
+            "media_id": str(media.id),
+            "processing_status": ProcessingStatus.PENDING.value,
+            field: final_url,
+        },
+        status_code=status.HTTP_202_ACCEPTED,
     )
 
 
-def _delete_profile_image(request, field: str) -> APIResponse:
-    from clients.aws.storage import delete_file
-    from medias.models import Media
+def _delete_profile_image(request, field: str) -> Response:
+    """Detach a profile image immediately; reclaim the S3 object in the background."""
+    from django.db import transaction
+
+    from accounts.tasks import cleanup_old_profile_image
 
     profile = request.user.profile
     old_media = getattr(profile, field, None)
     if not old_media:
         return APIResponse.success(
             message=f"No {field.replace('_', ' ')} to remove.",
-            data={},
+            data={field: None},
         )
 
-    delete_file(old_media.cdn_url)
-    old_media.delete()
+    old_media_id = str(old_media.pk)
 
-    setattr(profile, field, None)
-    profile.save(update_fields=[field])
+    # Detach synchronously so the very next read of the profile is correct;
+    # only the slow S3 round-trip is deferred.
+    with transaction.atomic():
+        setattr(profile, field, None)
+        profile.save(update_fields=[field])
+        transaction.on_commit(
+            lambda: cleanup_old_profile_image.delay(
+                media_id=old_media_id,
+                user_id=str(request.user.id),
+                field=field,
+                notify=False,
+            )
+        )
 
     return APIResponse.success(
         message=f"{field.replace('_', ' ').title()} removed successfully.",
-        data={},
+        data={field: None},
     )
 
 
@@ -482,7 +508,10 @@ class ProfileAvatarUpdateView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
 
-    @swagger_auto_schema(request_body=ProfileImageUploadSerializer)
+    @swagger_auto_schema(
+        request_body=ProfileImageUploadSerializer,
+        responses={202: "Accepted — image queued for processing"},
+    )
     def put(self, request):
         return _dispatch_profile_image_upload(request, "avatar")
 
@@ -494,7 +523,10 @@ class ProfileAvatarUpdateView(APIView):
 class ProfileCoverUpdateView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
-    @swagger_auto_schema(request_body=ProfileImageUploadSerializer)
+    @swagger_auto_schema(
+        request_body=ProfileImageUploadSerializer,
+        responses={202: "Accepted — image queued for processing"},
+    )
     def put(self, request):
         return _dispatch_profile_image_upload(request, "cover_photo")
 
@@ -506,7 +538,10 @@ class ProfileCoverUpdateView(APIView):
 class ProfileDisplayPhotoUpdateView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
-    @swagger_auto_schema(request_body=ProfileImageUploadSerializer)
+    @swagger_auto_schema(
+        request_body=ProfileImageUploadSerializer,
+        responses={202: "Accepted — image queued for processing"},
+    )
     def put(self, request):
         return _dispatch_profile_image_upload(request, "display_photo")
 

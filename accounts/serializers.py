@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
+
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from accounts.models import User, UserDevice, UserProfile
+from utils import images
 from utils.enum import DevicePlatform
 
 
@@ -117,7 +120,41 @@ class PasswordChangeSerializer(serializers.Serializer):
 
 
 class ProfileImageUploadSerializer(serializers.Serializer):
-    file = serializers.FileField()
+    """Profile pictures only — the payload must be a real, decodable image.
+
+    `ImageField` makes Pillow verify the bytes, so a renamed `.jpg` that is
+    really a PDF (or a script) is rejected here rather than in the worker.
+    """
+
+    file = serializers.ImageField()
+
+    def validate_file(self, value):
+        # Size first: it is free, and it short-circuits before any decode.
+        if value.size > images.MAX_UPLOAD_BYTES:
+            raise serializers.ValidationError(
+                f"Image must be {images.MAX_UPLOAD_BYTES // (1024 * 1024)} MB or smaller."
+            )
+        if not value.size:
+            raise serializers.ValidationError("Uploaded file is empty.")
+
+        ext = os.path.splitext(getattr(value, "name", "") or "")[1].lower()
+        if ext and ext not in images.ALLOWED_EXTENSIONS:
+            raise serializers.ValidationError(
+                f"Unsupported image type '{ext}'. Allowed: "
+                f"{', '.join(sorted(images.ALLOWED_EXTENSIONS))}."
+            )
+
+        # Header-only probe — confirms the real format and guards against
+        # decompression bombs without decoding the full raster.
+        value.seek(0)
+        try:
+            images.probe(value.read())
+        except images.ImageValidationError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+        finally:
+            value.seek(0)
+
+        return value
 
 
 class ProfileUpdateSerializer(serializers.Serializer):
