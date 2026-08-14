@@ -18,33 +18,29 @@ def _clear_cache_between_tests():
 
 
 # Outbound mail block. CELERY_TASK_ALWAYS_EAGER runs send_otp_email/
-# send_welcome_email inline, and the Resend client talks HTTP directly rather
-# than going through EMAIL_BACKEND — so locmem does not contain it. Without
-# this, the suite posts to the live Resend API using the real key in the
-# environment. Request `resend_outbox` to assert on what would have been sent.
-
-
-class _FakeResendResponse:
-    status_code = 200
-    text = '{"id": "test-message-id"}'
-
-    def raise_for_status(self) -> None:
-        pass
-
-    def json(self) -> dict[str, str]:
-        return {"id": "test-message-id"}
+# send_welcome_email inline, and the email providers talk HTTP/boto directly
+# rather than going through EMAIL_BACKEND — so locmem does not contain them.
+# Without this the suite would post to the live provider using the real key in
+# the environment.
+#
+# Rather than patching a specific provider's HTTP client, this substitutes the
+# in-memory provider for every registered one: the swap the abstraction exists
+# to make safe. Request `email_outbox` to assert on what would have been sent.
 
 
 @pytest.fixture(autouse=True)
-def resend_outbox(monkeypatch) -> list[dict[str, Any]]:
-    sent: list[dict[str, Any]] = []
+def email_outbox(monkeypatch):
+    """Returns the MemoryProvider whose `.outbox` holds every EmailMessage."""
+    from clients.email import registry
+    from clients.email.providers.local import MemoryProvider
 
-    def _blocked_post(url, json=None, headers=None, timeout=None, **kwargs):
-        sent.append(json or {})
-        return _FakeResendResponse()
-
-    monkeypatch.setattr("clients.resend.emails.requests.post", _blocked_post)
-    return sent
+    provider = MemoryProvider()
+    monkeypatch.setattr(registry, "get_provider", lambda name=None: provider)
+    # The service imports get_provider by name, so patch that binding too.
+    monkeypatch.setattr(
+        "clients.email.service.get_provider", lambda name=None: provider
+    )
+    return provider
 
 
 # Fakes for service-layer interfaces.

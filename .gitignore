@@ -198,3 +198,4 @@ db.json
 staticfiles
 .pytest_cache/
 k6/
+.claude/

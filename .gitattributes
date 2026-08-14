@@ -1,0 +1,73 @@
+# Python and text files should use LF
+*.py      text eol=lf
+*.pyi     text eol=lf
+*.txt     text eol=lf
+*.md      text eol=lf
+*.rst     text eol=lf
+*.json    text eol=lf
+*.yaml    text eol=lf
+*.yml     text eol=lf
+*.toml    text eol=lf
+*.ini     text eol=lf
+*.cfg     text eol=lf
+*.conf    text eol=lf
+*.env.example text eol=lf
+
+# Shell scripts
+*.sh      text eol=lf
+*.bash    text eol=lf
+
+# Docker
+Dockerfile* text eol=lf
+*.dockerfile text eol=lf
+
+# GitHub Actions
+.github/**/*.yml text eol=lf
+.github/**/*.yaml text eol=lf
+
+*.md      text diff=markdown
+*.rst     text diff
+*.txt     text
+
+*.html    text eol=lf
+*.css     text eol=lf
+*.js      text eol=lf
+*.ts      text eol=lf
+*.jsx     text eol=lf
+*.tsx     text eol=lf
+
+*.sql     text eol=lf
+
+
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.webp    binary
+*.ico     binary
+*.pdf     binary
+*.zip     binary
+*.gz      binary
+*.tar     binary
+*.woff    binary
+*.woff2   binary
+*.ttf     binary
+*.otf     binary
+
+# Environment files should not be treated as source code
+.env*     -text
+
+# But keep example environment files readable
+.env.example text eol=lf
+
+# Django migrations are Python files and should use LF
+**/migrations/*.py text eol=lf
+
+# Treat Django migration files as Python
+**/migrations/*.py diff=python
+
+# Treat Python files as Python for Git diff
+*.py diff=python
+
+
+*.ipynb text eol=lf
