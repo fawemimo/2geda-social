@@ -54,7 +54,7 @@ class TestStartRegistration:
             purpose="registration", username="smithEze",
         )
 
-    @patch("accounts.tasks.send_otp_whatsapp.delay")
+    @patch("accounts.tasks.send_otp_message.delay")
     def test_happy_path_phone(self, mock_whatsapp_delay):
         result = self.service.start_registration(
             email=None,
@@ -65,7 +65,7 @@ class TestStartRegistration:
         assert result.phone_number == "+2348012345678"
         assert result.email is None
         mock_whatsapp_delay.assert_called_once_with(
-            to="+2348012345678", code=ANY, purpose="registration",
+            to="+2348012345678", code=ANY, purpose="registration", channel=None,
         )
 
     @patch("accounts.tasks.send_otp_email.delay")
@@ -244,7 +244,7 @@ class TestCompleteRegistration:
         assert user.is_email_verified is True
         assert UserProfile.objects.filter(user=user).exists()
 
-    @patch("accounts.tasks.send_otp_whatsapp.delay")
+    @patch("accounts.tasks.send_otp_message.delay")
     @patch.object(TokenService, "issue")
     def test_phone_registration(self, mock_issue, _mock_whatsapp):
         mock_issue.return_value = {

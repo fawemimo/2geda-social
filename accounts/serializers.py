@@ -18,12 +18,23 @@ class DevicePayloadSerializer(serializers.Serializer):
     push_token = serializers.CharField(required=False, allow_blank=True)
 
 
+#: How the caller may ask for a phone OTP. Omitting it means "no preference",
+#: which resolves to WhatsApp with SMS as the fallback.
+OTP_CHANNEL_CHOICES = ("whatsapp", "sms")
+
+
 class RegisterSerializer(serializers.Serializer):
     email = serializers.EmailField(required=False, allow_blank=True)
     phone_number = serializers.CharField(max_length=20, required=False, allow_blank=True)
     username = serializers.CharField(max_length=40)
     password = serializers.CharField(min_length=8, write_only=True)
     referral_code = serializers.CharField(max_length=12, required=False, allow_blank=True)
+    channel = serializers.ChoiceField(
+        choices=OTP_CHANNEL_CHOICES,
+        required=False,
+        allow_blank=True,
+        help_text="Preferred phone OTP channel. Defaults to WhatsApp, falls back to SMS.",
+    )
 
     def validate(self, attrs):
         if not attrs.get("email") and not attrs.get("phone_number"):
@@ -51,6 +62,12 @@ class ResendOTPSerializer(serializers.Serializer):
     email = serializers.EmailField(required=False, allow_blank=True)
     phone_number = serializers.CharField(max_length=20, required=False, allow_blank=True)
     purpose = serializers.CharField(max_length=20, required=False)
+    channel = serializers.ChoiceField(
+        choices=OTP_CHANNEL_CHOICES,
+        required=False,
+        allow_blank=True,
+        help_text="Preferred phone OTP channel. Defaults to WhatsApp, falls back to SMS.",
+    )
 
     def validate(self, attrs):
         if not attrs.get("email") and not attrs.get("phone_number"):

@@ -117,6 +117,7 @@ class RegistrationService:
         phone_number: str | None = None,
         referral_code: str | None = None,
         ip_address: str | None = None,
+        channel: str | None = None,
     ) -> RegistrationDraftResult:
         email = self._normalize_email(email) if email else None
         username = self._normalize_username(username)
@@ -166,16 +167,19 @@ class RegistrationService:
                 username=username,
             )
         else:
-            from accounts.tasks import send_otp_whatsapp as _send_otp_whatsapp
-            _send_otp_whatsapp.delay(
+            # WhatsApp first, SMS fallback. `channel` is only set when the user
+            # explicitly picked one.
+            from accounts.tasks import send_otp_message as _send_otp_message
+            _send_otp_message.delay(
                 to=phone_number,
                 code=code,
                 purpose=OTPPurpose.REGISTRATION.value,
+                channel=channel,
             )
 
         expires_at = payload.issued_at + self._ttl
         logger.info("Pending registration staged channel=%s expires_at=%s",
-                    "email" if email else "whatsapp", expires_at)
+                    "email" if email else (channel or "whatsapp"), expires_at)
         return RegistrationDraftResult(
             email=email,
             phone_number=phone_number,
@@ -183,7 +187,13 @@ class RegistrationService:
             cooldown_until=payload.issued_at + self._cooldown,
         )
 
-    def resend_registration_otp(self, *, email: str | None = None, phone_number: str | None = None) -> RegistrationDraftResult:
+    def resend_registration_otp(
+        self,
+        *,
+        email: str | None = None,
+        phone_number: str | None = None,
+        channel: str | None = None,
+    ) -> RegistrationDraftResult:
         identifier = self._primary_identifier(email=email, phone_number=phone_number)
         existing = self._store.get(identifier)
         if existing is None:
@@ -222,11 +232,12 @@ class RegistrationService:
                 username=existing.username,
             )
         else:
-            from accounts.tasks import send_otp_whatsapp as _send_otp_whatsapp
-            _send_otp_whatsapp.delay(
+            from accounts.tasks import send_otp_message as _send_otp_message
+            _send_otp_message.delay(
                 to=existing.phone_number,
                 code=code,
                 purpose=OTPPurpose.REGISTRATION.value,
+                channel=channel,
             )
 
         expires_at = refreshed.issued_at + self._ttl

@@ -66,6 +66,8 @@ class TestRegisterView:
             phone_number="+2348012345678",
             referral_code="REF123",
             ip_address=ANY,
+            # Not supplied by the client -> no preference -> WhatsApp default.
+            channel=None,
         )
 
     def test_register_missing_fields(self):
@@ -285,7 +287,7 @@ class TestResendOTPView:
         }, format="json")
         assert resp.status_code == 404
 
-    @patch("accounts.tasks.send_otp_whatsapp")
+    @patch("accounts.tasks.send_otp_message")
     @patch("accounts.views.RegistrationService.resend_registration_otp")
     def test_resend_registration_phone(self, mock_resend, mock_whatsapp):
         mock_resend.return_value = MagicMock(

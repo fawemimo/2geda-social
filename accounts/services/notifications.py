@@ -5,6 +5,7 @@ import logging
 from django.conf import settings
 
 from clients.email import EmailProvider, EmailService
+from clients.messaging import Channel, MessagingProvider, MessagingService
 
 from .interfaces import INotificationSender, NotificationPayload
 
@@ -34,18 +35,27 @@ class EmailNotificationSender(INotificationSender):
             subject=payload.subject,
         )
 
-class SMSNotificationSender(INotificationSender):
+class _MessagingSender(INotificationSender):
+    channel: Channel = Channel.SMS
+
+    def __init__(self, provider: MessagingProvider | None = None) -> None:
+        self._provider = provider
 
     def send(self, payload: NotificationPayload) -> None:
-        logger.info("SMS dispatched (subject=%s)", payload.subject)
+        to = payload.to[0] if isinstance(payload.to, list) else payload.to
+        MessagingService(provider=self._provider).send(
+            to=to,
+            body=payload.body,
+            channel=self.channel,
+        )
 
 
-class WhatsAppNotificationSender(INotificationSender):
+class SMSNotificationSender(_MessagingSender):
+    channel = Channel.SMS
 
-    def send(self, payload: NotificationPayload) -> None:
-        from clients.whatsapp import WhatsAppService
-        code = (payload.context or {}).get("code", payload.body)
-        WhatsAppService().send_otp(to=payload.to, code=code)
+
+class WhatsAppNotificationSender(_MessagingSender):
+    channel = Channel.WHATSAPP
 
 
 class NullNotificationSender(INotificationSender):

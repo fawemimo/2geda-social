@@ -59,7 +59,7 @@ class PasswordService:
         )
 
         from accounts.tasks import send_otp_email as _send_otp_email
-        from accounts.tasks import send_otp_sms as _send_otp_sms
+        from accounts.tasks import send_otp_message
 
         if channel == OTPChannel.EMAIL.value:
             _send_otp_email.delay(
@@ -69,7 +69,7 @@ class PasswordService:
                 username=user.username,
             )
         elif channel == OTPChannel.SMS.value:
-            _send_otp_sms.delay(
+            send_otp_message.delay(
                 to=identifier,
                 code=issued.code,
                 purpose=issued.purpose,

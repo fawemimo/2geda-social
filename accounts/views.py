@@ -96,6 +96,7 @@ class RegisterView(APIView):
             phone_number=phone_number,
             referral_code=data.validated_data.get("referral_code") or None,
             ip_address=_client_ip(request),
+            channel=data.validated_data.get("channel") or None,
         )
         resp_data = {
             "otp_expires_at": result.otp_expires_at,
@@ -106,7 +107,10 @@ class RegisterView(APIView):
             resp_data["email"] = result.email
         if result.phone_number:
             resp_data["phone_number"] = result.phone_number
-        channel = "email" if result.email else "WhatsApp"
+        channel = (
+            "email" if result.email
+            else (data.validated_data.get("channel") or "WhatsApp")
+        )
         return APIResponse.success(
             message=f"OTP has been sent to your {channel}. Verify to finish creating your account.",
             data=resp_data,
@@ -189,6 +193,7 @@ class ResendOTPView(APIView):
             result = RegistrationService().resend_registration_otp(
                 email=email,
                 phone_number=phone_number,
+                channel=data.validated_data.get("channel") or None,
             )
             resp_data = {
                 "otp_expires_at": result.otp_expires_at,
@@ -199,7 +204,10 @@ class ResendOTPView(APIView):
                 resp_data["email"] = result.email
             if result.phone_number:
                 resp_data["phone_number"] = result.phone_number
-            channel = "email" if result.email else "WhatsApp"
+            channel = (
+                "email" if result.email
+                else (data.validated_data.get("channel") or "WhatsApp")
+            )
             return APIResponse.success(
                 message=f"A new OTP has been sent to your {channel}.",
                 data=resp_data,

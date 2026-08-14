@@ -43,6 +43,27 @@ def email_outbox(monkeypatch):
     return provider
 
 
+@pytest.fixture(autouse=True)
+def sms_outbox(monkeypatch):
+    """Blocks outbound SMS/WhatsApp for every provider.
+
+    Same reasoning as `email_outbox`: eager Celery runs send_otp_sms and
+    send_otp_whatsapp inline, and the providers talk HTTP directly. Substituting
+    the in-memory provider keeps the suite off Twilio/Termii/EBulkSMS entirely.
+    Returns the provider, so `sms_outbox.outbox` holds every Message.
+    """
+    from clients.messaging import registry
+    from clients.messaging.providers.local import MemoryProvider
+
+    provider = MemoryProvider()
+    monkeypatch.setattr(registry, "get_messaging_provider", lambda channel=None: provider)
+    monkeypatch.setattr(
+        "clients.messaging.service.get_messaging_provider",
+        lambda channel=None: provider,
+    )
+    return provider
+
+
 # Fakes for service-layer interfaces.
 
 

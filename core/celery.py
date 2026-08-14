@@ -23,6 +23,7 @@ app.conf.task_default_queue = "default"
 app.conf.task_routes = {
     "accounts.tasks.send_otp_email": {"queue": "otp"},
     "accounts.tasks.send_otp_sms": {"queue": "otp"},
+    "accounts.tasks.send_otp_message": {"queue": "otp"},
     "accounts.tasks.send_welcome_email": {"queue": "notifications"},
     "accounts.tasks.send_user_push_notification": {"queue": "notifications"},
     "accounts.tasks.cleanup_old_profile_image": {"queue": "media"},

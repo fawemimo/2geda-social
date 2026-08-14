@@ -63,6 +63,36 @@ def send_otp_email(*, to: str, code: str, purpose: str, username: str = "") -> N
     )
 
 
+# Phone OTP delivery. WhatsApp is tried first and SMS is the fallback, so a
+# single task covers both channels — the caller passes `channel` only when the
+# user explicitly picked one. Replaces the old send_otp_whatsapp/send_otp_sms
+# split, which could not fail over between channels.
+@shared_task(
+    name="accounts.tasks.send_otp_message",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=600,
+    retry_jitter=True,
+    max_retries=5,
+    acks_late=True,
+)
+def send_otp_message(
+    *,
+    to: str,
+    code: str,
+    purpose: str,
+    channel: str | None = None,
+) -> None:
+    from clients.messaging import MessagingService
+
+    # A total failure raises, so Celery retries the whole ladder.
+    result = MessagingService().send_otp(to=to, code=code, channel=channel)
+    logger.info(
+        "OTP dispatched (purpose=%s channel=%s provider=%s)",
+        purpose, result.channel, result.provider,
+    )
+
+
 @shared_task(
     name="accounts.tasks.send_otp_sms",
     autoretry_for=(Exception,),
@@ -73,35 +103,14 @@ def send_otp_email(*, to: str, code: str, purpose: str, username: str = "") -> N
     acks_late=True,
 )
 def send_otp_sms(*, to: str, code: str, purpose: str) -> None:
-    SMSNotificationSender().send(
-        NotificationPayload(
-            to=to,
-            subject=OTP_SUBJECTS.get(purpose, "Verification code"),
-            body=f"Your verification code is: {code}",
-        )
+    """SMS-preferred OTP. Kept for callers that explicitly want SMS first."""
+    from clients.messaging import Channel, MessagingService
+
+    result = MessagingService().send_otp(to=to, code=code, channel=Channel.SMS)
+    logger.info(
+        "OTP dispatched (purpose=%s channel=%s provider=%s)",
+        purpose, result.channel, result.provider,
     )
-
-
-@shared_task(
-    name="accounts.tasks.send_otp_whatsapp",
-    autoretry_for=(Exception,),
-    retry_backoff=True,
-    retry_backoff_max=600,
-    retry_jitter=True,
-    max_retries=5,
-    acks_late=True,
-)
-def send_otp_whatsapp(*, to: str, code: str, purpose: str) -> None:
-    from accounts.services.notifications import WhatsAppNotificationSender
-    logger.info("WhatsApp OTP dispatched (purpose=%s)", purpose)
-    # WhatsAppNotificationSender().send(
-    #     NotificationPayload(
-    #         to=to,
-    #         subject=OTP_SUBJECTS.get(purpose, "Verification code"),
-    #         body=f"Your verification code is: {code}",
-    #         context={"code": code},
-    #     )
-    # )
 
 
 @shared_task(
