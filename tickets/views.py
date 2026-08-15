@@ -1,4 +1,5 @@
-import json
+import logging
+
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from rest_framework import status, viewsets
@@ -49,6 +50,8 @@ from tickets.services.seller_service import SellerService
 from tickets.services.ticket_service import TicketService
 from utils.enum import EventStatus, TicketStatus
 from utils.responses import APIResponse
+
+logger = logging.getLogger(__name__)
 
 
 class EventCategoryViewSet(viewsets.ModelViewSet):
@@ -601,29 +604,48 @@ class SellerPayoutView(APIView):
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
-def paystack_webhook(request):
-    signature = request.headers.get("x-paystack-signature", "")
-    payload_body = request.body
+def payment_webhook(request):
+    """Gateway-neutral payment webhook.
 
-    if not PaymentService.verify_webhook_signature(payload_body, signature):
+    The configured provider verifies its own signature (HMAC for Paystack, a
+    shared secret hash for Flutterwave) and normalises the payload, so this view
+    holds no gateway-specific knowledge.
+    """
+    from clients.payments import InvalidWebhookSignature, PaymentError
+
+    try:
+        event = PaymentService.parse_webhook(request.body, request.headers)
+    except InvalidWebhookSignature:
         return APIResponse.error(
             message="Invalid signature.",
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
-
-    data = json.loads(payload_body)
-    event = data.get("event", "")
-    event_data = data.get("data", {})
+    except PaymentError as exc:
+        logger.warning("Rejected malformed payment webhook: %s", exc)
+        return APIResponse.error(
+            message="Invalid payload.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
 
     try:
-        PaymentService.handle_webhook(event, event_data)
-    except Exception as e:
-        import logging
-
-        logger = logging.getLogger(__name__)
-        logger.exception("Paystack webhook error: %s", e)
+        PaymentService.handle_webhook(event)
+    except Exception:
+        # Returning 5xx asks the gateway to redeliver rather than dropping a
+        # paid order on a transient database error.
+        logger.exception(
+            "Payment webhook handling failed (provider=%s reference=%s)",
+            event.provider, event.reference,
+        )
+        return APIResponse.error(
+            message="Webhook processing failed.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
     return APIResponse.success(message="Webhook received.")
+
+
+#: Legacy name — the URL is still routed for existing gateway configuration.
+paystack_webhook = payment_webhook
 
 
 

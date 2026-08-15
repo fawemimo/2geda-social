@@ -129,10 +129,17 @@ OTP_DAILY_QUOTA = int(os.getenv("OTP_DAILY_QUOTA", "20"))
 PASSWORD_RESET_TTL_SECONDS = int(os.getenv("PASSWORD_RESET_TTL_SECONDS", "900"))
 LOGIN_MAX_FAILED_ATTEMPTS = int(os.getenv("LOGIN_MAX_FAILED_ATTEMPTS", "10"))
 LOGIN_LOCKOUT_SECONDS = int(os.getenv("LOGIN_LOCKOUT_SECONDS", "900"))
+#  paystack or flutterwave
+PAYMENT_PROVIDER = os.getenv("PAYMENT_PROVIDER", "paystack")
 
 PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY", "")
 PAYSTACK_PUBLIC_KEY = os.getenv("PAYSTACK_PUBLIC_KEY", "")
 PAYSTACK_CALLBACK_URL = os.getenv("PAYSTACK_CALLBACK_URL", "")
+
+FLUTTERWAVE_SECRET_KEY = os.getenv("FLUTTERWAVE_SECRET_KEY", "")
+FLUTTERWAVE_PUBLIC_KEY = os.getenv("FLUTTERWAVE_PUBLIC_KEY", "")
+FLUTTERWAVE_SECRET_HASH = os.getenv("FLUTTERWAVE_SECRET_HASH", "")
+FLUTTERWAVE_CALLBACK_URL = os.getenv("FLUTTERWAVE_CALLBACK_URL", "")
 
 AUTH_USER_MODEL = "accounts.User"
 
@@ -197,11 +204,7 @@ MESSAGING_FAILOVER_COOLDOWN_SECONDS = int(
 
 
 STORAGE_TYPE = os.getenv("STORAGE_TYPE", "AWS")
-
-# Backend for clients.storage: s3 | azure | memory.
-# Falls back to STORAGE_TYPE ("AWS" is an alias for "s3") so existing
-# deployments keep working without an env change.
-STORAGE_PROVIDER = os.getenv("STORAGE_PROVIDER", "")
+STORAGE_PROVIDER = os.getenv("STORAGE_PROVIDER", "s3")
 
 # Azure Blob Storage
 AZURE_STORAGE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "")

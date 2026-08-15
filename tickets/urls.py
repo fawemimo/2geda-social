@@ -68,9 +68,16 @@ urlpatterns = [
         views.SellerReportView.as_view(),
         name="seller-report",
     ),
+    # Gateway-neutral endpoint; point new gateway configuration here.
+    path(
+        "webhook/payment/",
+        views.payment_webhook,
+        name="payment-webhook",
+    ),
+    # Kept so an existing Paystack dashboard configuration keeps working.
     path(
         "webhook/paystack/",
-        views.paystack_webhook,
+        views.payment_webhook,
         name="paystack-webhook",
     ),
 ]

@@ -84,6 +84,25 @@ def storage_objects(monkeypatch):
     return provider
 
 
+@pytest.fixture(autouse=True)
+def payment_gateway(monkeypatch):
+    """Blocks outbound payment-gateway calls for every provider.
+
+    Same reasoning as the other three: a test must never initialise or verify a
+    charge against live Paystack/Flutterwave. Returns the provider, so
+    `payment_gateway.charges` holds every reference the suite created.
+    """
+    from clients.payments import registry
+    from clients.payments.providers.local import MemoryProvider
+
+    provider = MemoryProvider()
+    monkeypatch.setattr(registry, "get_provider", lambda name=None: provider)
+    monkeypatch.setattr(
+        "clients.payments.gateway.get_provider", lambda name=None: provider
+    )
+    return provider
+
+
 # Fakes for service-layer interfaces.
 
 

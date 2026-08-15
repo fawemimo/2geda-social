@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from decimal import Decimal
 from unittest.mock import ANY, patch
 
 import pytest
 from django.utils import timezone
 from rest_framework import status
 
+from clients.payments import (
+    PaymentEventType,
+    PaymentInitialization,
+    PaymentState,
+    PaymentVerification,
+    WebhookEvent,
+)
 from tickets.models import (
     Dispute,
     Event,
@@ -296,10 +304,13 @@ class TestTicketPurchaseInitializeView:
     def test_initialize_success(
         self, mock_paystack, auth_client, published_event, price_tier
     ):
-        mock_paystack.return_value = {
-            "access_code": "test_access_code",
-            "authorization_url": "https://paystack.com/checkout/test",
-        }
+        mock_paystack.return_value = PaymentInitialization(
+            authorization_url="https://checkout.gateway.test/abc",
+            reference="REF-TEST",
+            access_code="test_access_code",
+            provider="memory",
+            raw={"reference": "REF-TEST"},
+        )
 
         with patch("redis.from_url") as mock_redis:
             mock_redis.return_value.set.return_value = True
@@ -356,10 +367,13 @@ class TestTicketPurchaseVerifyView:
 
     @patch("tickets.services.ticket_service.PaymentService.verify_transaction")
     def test_verify_success(self, mock_verify, auth_client, ticket_purchase):
-        mock_verify.return_value = {
-            "status": "success",
-            "amount": int(ticket_purchase.total_amount * 100),
-        }
+        # Normalised: Decimal in MAJOR units, not gateway-native kobo.
+        mock_verify.return_value = PaymentVerification(
+            reference=ticket_purchase.transaction_ref,
+            state=PaymentState.SUCCESS,
+            amount=Decimal(str(ticket_purchase.total_amount)),
+            provider="memory",
+        )
 
         resp = auth_client.post(
             self.url,
@@ -371,7 +385,12 @@ class TestTicketPurchaseVerifyView:
 
     @patch("tickets.services.ticket_service.PaymentService.verify_transaction")
     def test_verify_failed_payment(self, mock_verify, auth_client, ticket_purchase):
-        mock_verify.return_value = {"status": "failed", "amount": 0}
+        mock_verify.return_value = PaymentVerification(
+            reference=ticket_purchase.transaction_ref,
+            state=PaymentState.FAILED,
+            amount=Decimal("0"),
+            provider="memory",
+        )
 
         resp = auth_client.post(
             self.url,
@@ -592,42 +611,84 @@ class TestSellerReportDownloadView:
 # ── Paystack Webhook ───────────────────────────────────────────────────────
 
 
-class TestPaystackWebhookView:
-    url = f"{API_ROOT}webhook/paystack/"
+class TestPaymentWebhookView:
+    """The view is gateway-neutral: the provider verifies and normalises."""
+
+    url = f"{API_ROOT}webhook/payment/"
+    legacy_url = f"{API_ROOT}webhook/paystack/"
 
     def test_invalid_signature(self, api_client):
-        resp = api_client.post(
-            self.url,
-            {"event": "charge.success", "data": {}},
-            format="json",
-            HTTP_X_PAYSTACK_SIGNATURE="invalid",
-        )
-        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
-
-    @patch("tickets.views.PaymentService.verify_webhook_signature")
-    def test_charge_success_webhook(
-        self, mock_verify, api_client, ticket_purchase
-    ):
-        mock_verify.return_value = True
+        """A provider that rejects the signature must surface as 401."""
+        from clients.payments import InvalidWebhookSignature
 
         with patch(
-            "tickets.views.PaymentService.handle_webhook"
-        ) as mock_handle:
+            "tickets.views.PaymentService.parse_webhook",
+            side_effect=InvalidWebhookSignature("paystack"),
+        ):
             resp = api_client.post(
                 self.url,
-                {
-                    "event": "charge.success",
-                    "data": {
-                        "reference": ticket_purchase.transaction_ref,
-                        "amount": int(ticket_purchase.total_amount * 100),
-                        "metadata": {"purchase_id": str(ticket_purchase.id)},
-                    },
-                },
+                {"event": "charge.success", "data": {}},
                 format="json",
-                HTTP_X_PAYSTACK_SIGNATURE="valid",
+                HTTP_X_PAYSTACK_SIGNATURE="invalid",
+            )
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+    def test_real_paystack_provider_rejects_a_forged_signature(self, api_client):
+        """End-to-end through the actual provider, not a mock."""
+        from clients.payments import PaymentGateway
+        from clients.payments.providers.paystack import PaystackProvider
+
+        gateway = PaymentGateway(PaystackProvider(secret_key="sk_test"))
+        with patch("tickets.views.PaymentService.gateway", return_value=gateway):
+            resp = api_client.post(
+                self.url,
+                {"event": "charge.success", "data": {}},
+                format="json",
+                HTTP_X_PAYSTACK_SIGNATURE="forged",
+            )
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+    @patch("tickets.views.PaymentService.parse_webhook")
+    def test_charge_success_webhook(self, mock_parse, api_client, ticket_purchase):
+        mock_parse.return_value = WebhookEvent(
+            type=PaymentEventType.PAYMENT_SUCCEEDED,
+            reference=ticket_purchase.transaction_ref,
+            amount=Decimal(str(ticket_purchase.total_amount)),
+            provider="memory",
+        )
+
+        with patch("tickets.views.PaymentService.handle_webhook") as mock_handle:
+            resp = api_client.post(
+                self.url, {"any": "payload"}, format="json",
             )
             assert resp.status_code == status.HTTP_200_OK
             mock_handle.assert_called_once()
+            assert mock_handle.call_args.args[0].type is (
+                PaymentEventType.PAYMENT_SUCCEEDED
+            )
+
+    @patch("tickets.views.PaymentService.parse_webhook")
+    def test_legacy_paystack_url_still_routes(self, mock_parse, api_client):
+        mock_parse.return_value = WebhookEvent(
+            type=PaymentEventType.UNKNOWN, provider="memory"
+        )
+        with patch("tickets.views.PaymentService.handle_webhook"):
+            resp = api_client.post(self.legacy_url, {"a": 1}, format="json")
+        assert resp.status_code == status.HTTP_200_OK
+
+    @patch("tickets.views.PaymentService.parse_webhook")
+    def test_handler_failure_returns_5xx_so_the_gateway_retries(
+        self, mock_parse, api_client
+    ):
+        mock_parse.return_value = WebhookEvent(
+            type=PaymentEventType.PAYMENT_SUCCEEDED, reference="REF-X", provider="memory"
+        )
+        with patch(
+            "tickets.views.PaymentService.handle_webhook",
+            side_effect=RuntimeError("db down"),
+        ):
+            resp = api_client.post(self.url, {"a": 1}, format="json")
+        assert resp.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
 
 
 # ── Event Delete (soft delete) ─────────────────────────────────────────────

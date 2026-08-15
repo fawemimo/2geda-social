@@ -94,16 +94,6 @@ class MessagingService:
         channels: Sequence[Channel],
         **kwargs,
     ) -> SendResult:
-        """Try each channel in order until one delivers.
-
-        This is a second, outer failover axis. `FailoverProvider` switches
-        *vendors* within one channel; this switches *channels* once a channel is
-        exhausted — including when no provider serves it at all.
-
-        Unlike vendor failover, a non-retryable error does **not** stop the
-        ladder: "recipient is not on WhatsApp" is permanent for WhatsApp and
-        precisely the case where SMS is the right answer.
-        """
         if not channels:
             raise ValueError("send_with_fallback requires at least one channel.")
 
@@ -132,12 +122,6 @@ class MessagingService:
         template: str | None = None,
         **kwargs,
     ) -> SendResult:
-        """Deliver an OTP, preferring WhatsApp.
-
-        `channel` is the user's explicit choice; `None` means "no preference",
-        which resolves to WhatsApp. With `fallback` on (the default) the
-        remaining channels are tried in order if the preferred one fails.
-        """
         body = (template or DEFAULT_OTP_TEMPLATE).format(code=code)
         order = resolve_channel_order(channel)
         if not fallback:

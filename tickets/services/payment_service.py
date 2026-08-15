@@ -1,8 +1,19 @@
-import hashlib
-import hmac
+from __future__ import annotations
+
 import logging
-import requests
+from decimal import Decimal
+from typing import Mapping
+
 from django.conf import settings
+
+from clients.payments import (
+    PaymentError,
+    PaymentEventType,
+    PaymentGateway,
+    PaymentInitialization,
+    PaymentVerification,
+    WebhookEvent,
+)
 from tickets.models import Event, PaymentTransaction, Payout, SellerProfile, Ticket
 from tickets.services.exceptions import PaymentVerificationFailed
 from utils.enum import PaymentStatus, TransactionType
@@ -10,140 +21,105 @@ from utils.generators import generate_payout_reference
 
 logger = logging.getLogger(__name__)
 
-PAYSTACK_BASE = "https://api.paystack.co"
-
 
 class PaymentService:
 
     @staticmethod
-    def _headers() -> dict:
-        secret_key = getattr(settings, "PAYSTACK_SECRET_KEY", "")
-        return {
-            "Authorization": f"Bearer {secret_key}",
-            "Content-Type": "application/json",
-        }
+    def gateway() -> PaymentGateway:
+        return PaymentGateway()
 
     @staticmethod
     def initialize_transaction(
         email: str,
-        amount: float,
+        amount: Decimal | float | str,
         reference: str,
         metadata: dict | None = None,
-    ) -> dict:
-        payload = {
-            "email": email,
-            "amount": int(amount * 100),
-            "reference": reference,
-            "callback_url": getattr(settings, "PAYSTACK_CALLBACK_URL", ""),
-        }
-        if metadata:
-            payload["metadata"] = metadata
-
-        resp = requests.post(
-            f"{PAYSTACK_BASE}/transaction/initialize",
-            json=payload,
-            headers=PaymentService._headers(),
-            timeout=30,
-        )
-        data = resp.json()
-        if not data.get("status"):
-            logger.exception(
-                "Paystack init failed: %s",
-                data.get("message"),
-                extra={"reference": reference},
+    ) -> PaymentInitialization:
+        try:
+            return PaymentService.gateway().initialize(
+                email=email,
+                amount=amount,
+                reference=reference,
+                callback_url=getattr(settings, "PAYSTACK_CALLBACK_URL", ""),
+                metadata=metadata,
             )
-            raise PaymentVerificationFailed(
-                data.get("message", "Paystack initialization failed.")
-            )
-        return data["data"]
+        except PaymentError as exc:
+            logger.exception("Payment initialization failed: %s", exc)
+            raise PaymentVerificationFailed(str(exc)) from exc
 
     @staticmethod
-    def verify_transaction(reference: str) -> dict:
-        resp = requests.get(
-            f"{PAYSTACK_BASE}/transaction/verify/{reference}",
-            headers=PaymentService._headers(),
-            timeout=30,
-        )
-        data = resp.json()
-        if not data.get("status"):
-            logger.exception(
-                "Paystack verify failed: %s",
-                data.get("message"),
-                extra={"reference": reference},
-            )
-            raise PaymentVerificationFailed(
-                data.get("message", "Paystack verification failed.")
-            )
-        return data["data"]
+    def verify_transaction(reference: str) -> PaymentVerification:
+        try:
+            return PaymentService.gateway().verify(reference)
+        except PaymentError as exc:
+            logger.error("Payment verification failed: %s", exc)
+            raise PaymentVerificationFailed(str(exc)) from exc
 
     @staticmethod
-    def verify_webhook_signature(payload_body: bytes, signature: str) -> bool:
-        secret = getattr(settings, "PAYSTACK_SECRET_KEY", "")
-        expected = hmac.new(
-            secret.encode("utf-8"),
-            payload_body,
-            hashlib.sha512,
-        ).hexdigest()
-        return hmac.compare_digest(expected, signature)
+    def parse_webhook(body: bytes, headers: Mapping[str, str]) -> WebhookEvent:
+        """Verify the signature and normalise. Raises on a bad signature."""
+        return PaymentService.gateway().parse_webhook(body, headers)
+
 
     @staticmethod
-    def handle_webhook(event: str, data: dict) -> None:
-        if event == "charge.success":
-            PaymentService._handle_charge_success(data)
-        elif event == "charge.failed":
-            PaymentService._handle_charge_failed(data)
-        elif event == "refund.processed":
-            PaymentService._handle_refund(data)
+    def handle_webhook(event: WebhookEvent) -> None:
+        """React to a verified, gateway-neutral payment event."""
+        if event.type is PaymentEventType.PAYMENT_SUCCEEDED:
+            PaymentService._handle_charge_success(event)
+        elif event.type is PaymentEventType.PAYMENT_FAILED:
+            PaymentService._handle_charge_failed(event)
+        elif event.type is PaymentEventType.REFUND_PROCESSED:
+            PaymentService._handle_refund(event)
         else:
-            logger.info("Unhandled Paystack webhook event: %s", event)
+            logger.info(
+                "Unhandled %s webhook event: %s", event.provider, event.raw.get("event")
+            )
 
     @staticmethod
-    def _handle_charge_success(data: dict) -> None:
+    def _handle_charge_success(event: WebhookEvent) -> None:
         from tickets.services.ticket_service import TicketService
 
-        reference = data.get("reference", "")
-        if not reference:
+        if not event.reference:
             return
 
-        existing = PaymentTransaction.objects.filter(reference=reference).first()
-        if existing:
-            logger.warning("Duplicate webhook for reference: %s", reference)
-            return
 
-        TicketService.verify_purchase(reference)
-
-        logger.info("Webhook charge.success processed: %s", reference)
+        TicketService.verify_purchase(event.reference)
+        logger.info("Webhook payment.succeeded processed: %s", event.reference)
 
     @staticmethod
-    def _handle_charge_failed(data: dict) -> None:
-        reference = data.get("reference", "")
-        if not reference:
-            return
-        from tickets.services.ticket_service import TicketService
+    def _handle_charge_failed(event: WebhookEvent) -> None:
         from tickets.models import TicketPurchase
+        from tickets.services.ticket_service import TicketService
 
-        purchase = TicketPurchase.objects.filter(transaction_ref=reference).first()
+        if not event.reference:
+            return
+
+        purchase = TicketPurchase.objects.filter(
+            transaction_ref=event.reference
+        ).first()
         if purchase:
             TicketService._release_reservation(purchase)
 
-        logger.info("Webhook charge.failed processed: %s", reference)
+        logger.info("Webhook payment.failed processed: %s", event.reference)
 
     @staticmethod
-    def _handle_refund(data: dict) -> None:
-        reference = data.get("reference", "")
-        if not reference:
+    def _handle_refund(event: WebhookEvent) -> None:
+        if not event.reference:
             return
 
         PaymentTransaction.objects.create(
-            reference=reference,
+            reference=event.reference,
             transaction_type=TransactionType.REFUND.value,
-            amount=float(data.get("amount", 0)) / 100,
+            # Already normalised to major units by the provider.
+            amount=event.amount,
             fees=0,
             status=PaymentStatus.REFUNDED.value,
-            notes=f"Paystack refund: {data.get('reason', '')}",
+            notes=f"{event.provider} refund: {event.reason}",
         )
 
-        logger.info("Webhook refund processed: %s", reference)
+        logger.info("Webhook refund processed: %s", event.reference)
+
+    # -- ledger / settlement ------------------------------------------------
 
     @staticmethod
     def log_transaction(
@@ -185,14 +161,12 @@ class PaymentService:
         total_fees = sum(float(t.fees) for t in transactions)
         net_amount = total_amount - total_fees
 
-        payout_ref = generate_payout_reference()
-
         payout = Payout.objects.create(
             seller=seller,
             event=event,
             amount=net_amount,
             fees_deducted=total_fees,
-            payout_ref=payout_ref,
+            payout_ref=generate_payout_reference(),
             status=PaymentStatus.PENDING.value,
         )
 

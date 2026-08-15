@@ -1,5 +1,6 @@
 import json
 import logging
+from decimal import Decimal
 
 from django.db import models, transaction
 from django.utils import timezone
@@ -91,7 +92,7 @@ class TicketService:
                         status=TicketStatus.RESERVED.value,
                     )
 
-                paystack_response = PaymentService.initialize_transaction(
+                initialization = PaymentService.initialize_transaction(
                     email=buyer.email,
                     amount=total_amount,
                     reference=ref,
@@ -103,11 +104,11 @@ class TicketService:
                     },
                 )
 
-                purchase.paystack_access_code = paystack_response.get("access_code", "")
-                purchase.paystack_authorization_url = paystack_response.get(
-                    "authorization_url", ""
-                )
-                purchase.paystack_data = paystack_response
+                # Field names still say "paystack" for schema compatibility;
+                # the values now come from whichever gateway is configured.
+                purchase.paystack_access_code = initialization.access_code
+                purchase.paystack_authorization_url = initialization.authorization_url
+                purchase.paystack_data = initialization.raw
                 purchase.save(
                     update_fields=[
                         "paystack_access_code",
@@ -141,20 +142,21 @@ class TicketService:
                 ),
             }
 
-        paystack_data = PaymentService.verify_transaction(reference)
+        verification = PaymentService.verify_transaction(reference)
 
-        if paystack_data.get("status") != "success":
+        if not verification.is_successful:
             TicketService._release_reservation(purchase)
-            raise PaymentVerificationFailed("Paystack payment was not successful.")
+            raise PaymentVerificationFailed("Payment was not successful.")
 
-        amount_paid = float(paystack_data.get("amount", 0)) / 100
-        if amount_paid < float(purchase.total_amount):
+        # `verification.amount` is a Decimal in major units for every gateway —
+        # the kobo/naira conversion is the provider's job, not ours.
+        if verification.amount < Decimal(str(purchase.total_amount)):
             TicketService._release_reservation(purchase)
             raise PaymentVerificationFailed("Payment amount mismatch.")
 
         with transaction.atomic():
             purchase.payment_status = PaymentStatus.SUCCESSFUL.value
-            purchase.paystack_data = paystack_data
+            purchase.paystack_data = verification.raw
             purchase.save(update_fields=["payment_status", "paystack_data"])
 
             tickets = Ticket.objects.filter(purchase=purchase)
