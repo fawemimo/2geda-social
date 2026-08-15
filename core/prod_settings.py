@@ -193,13 +193,12 @@ SUPPORT_EMAIL = os.getenv('SUPPORT_EMAIL')
 EMAIL_PROVIDER = os.getenv("EMAIL_PROVIDER", "resend")
 EMAIL_SENDER = os.getenv("EMAIL_SENDER")
 
-# SMS / WhatsApp transport chain for clients.messaging.
-# Ordered — a retryable failure fails over to the next provider immediately.
-MESSAGING_PROVIDERS = os.getenv("MESSAGING_PROVIDERS", "twilio,termii,ebulksms")
-MESSAGING_PROVIDERS_SMS = os.getenv("MESSAGING_PROVIDERS_SMS", "")
-MESSAGING_PROVIDERS_WHATSAPP = os.getenv("MESSAGING_PROVIDERS_WHATSAPP", "")
+# "twilio,termii,ebulksms"
+MESSAGING_PROVIDERS = os.getenv("MESSAGING_PROVIDERS", "ebulksms")
+MESSAGING_PROVIDERS_SMS = os.getenv("MESSAGING_PROVIDERS_SMS", "ebulksms")
+MESSAGING_PROVIDERS_WHATSAPP = os.getenv("MESSAGING_PROVIDERS_WHATSAPP", "ebulksms")
 MESSAGING_FAILOVER_COOLDOWN_SECONDS = int(
-    os.getenv("MESSAGING_FAILOVER_COOLDOWN_SECONDS", "0")
+    os.getenv("MESSAGING_FAILOVER_COOLDOWN_SECONDS", "2")
 )
 
 

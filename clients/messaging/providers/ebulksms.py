@@ -38,7 +38,7 @@ class EBulkSMSProvider(MessagingProvider):
     ) -> None:
         self.username = username or os.getenv("EBULKSMS_USERNAME", "")
         self.api_key = api_key or os.getenv("EBULKSMS_APIKEY", "")
-        self.sender_id = sender_id or os.getenv("EBULKSMS_SENDER_ID", "2geda")
+        self.sender_id = sender_id or os.getenv("EBULKSMS_SENDER_ID", "2Geda")
         self.base_url = (
             base_url or os.getenv("EBULKSMS_BASEURL") or DEFAULT_BASE_URL
         ).rstrip("/")
