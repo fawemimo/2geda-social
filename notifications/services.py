@@ -29,6 +29,7 @@ class NotificationService:
         service = cls()
 
         from notifications.models import NotificationPreference
+
         pref = NotificationPreference.objects.filter(user=recipient).first()
         if pref:
             if not pref.in_app_enabled:
@@ -73,6 +74,7 @@ class NotificationService:
 
     def _broadcast(self, notif: NotificationRecord) -> None:
         from notifications.models import NotificationPreference
+
         pref = NotificationPreference.objects.filter(user=notif.recipient).first()
         if pref and not pref.in_app_enabled:
             return
@@ -83,6 +85,7 @@ class NotificationService:
         try:
             from channels.db import database_sync_to_async
             import asyncio
+
             coro = self.channel_layer.group_send(group_name, payload)
             try:
                 loop = asyncio.get_event_loop()
@@ -93,19 +96,22 @@ class NotificationService:
             except RuntimeError:
                 asyncio.run(coro)
         except Exception as exc:
-            logger.error("Failed to broadcast notification %s: %s", notif.id, exc)
+            logger.exception("Failed to broadcast notification %s: %s", notif.id, exc)
 
     @classmethod
     def broadcast_unread_count(cls, user_id: str) -> None:
         group_name = f"notify_{user_id}"
         from social.models import Notification
+
         count = Notification.objects.filter(
-            recipient_id=user_id, is_read=False,
+            recipient_id=user_id,
+            is_read=False,
         ).count()
 
         channel_layer = get_channel_layer()
         try:
             import asyncio
+
             coro = channel_layer.group_send(
                 group_name,
                 {"type": "unread_count", "unread_count": count},
@@ -119,7 +125,9 @@ class NotificationService:
             except RuntimeError:
                 asyncio.run(coro)
         except Exception as exc:
-            logger.error("Failed to broadcast unread count for %s: %s", user_id, exc)
+            logger.exception(
+                "Failed to broadcast unread count for %s: %s", user_id, exc
+            )
 
 
 def notif_to_payload(notif: NotificationRecord) -> dict:

@@ -32,17 +32,17 @@ def process_post_media(post_id: str, media_ids: list[str]) -> None:
             continue
 
         try:
-            from clients.aws.storage import upload_file
+            from clients.storage import StorageService
 
             if hasattr(media, "file") and media.file:
-                result = upload_file(media.file)
-                media.storage_key = result["key"]
-                media.cdn_url = result["url"]
-                media.mime_type = result["content_type"]
-                media.file_size_bytes = result["file_size_bytes"]
-                media.media_type = result["media_type"]
-                media.width_px = result.get("width")
-                media.height_px = result.get("height")
+                result = StorageService().upload(media.file)
+                media.storage_key = result.key
+                media.cdn_url = result.url
+                media.mime_type = result.content_type
+                media.file_size_bytes = result.size_bytes
+                media.media_type = result.media_type
+                media.width_px = result.width
+                media.height_px = result.height
                 media.processing_status = ProcessingStatus.READY.value
                 media.save(update_fields=[
                     "storage_key", "cdn_url", "mime_type", "file_size_bytes",
@@ -68,13 +68,16 @@ def process_post_media(post_id: str, media_ids: list[str]) -> None:
     acks_late=True,
 )
 def delete_media_files(storage_keys: list[str]) -> None:
-    from clients.aws.storage import delete_file
+    # These are storage keys, not URLs — use the key-based delete.
+    from clients.storage import StorageService
+
+    storage = StorageService()
 
     logger.info("Deleting %d media files from S3", len(storage_keys))
     for key in storage_keys:
         if key:
             try:
-                success = delete_file(key)
+                success = storage.delete(key)
                 if success:
                     logger.info("Deleted S3 object: %s", key)
                 else:

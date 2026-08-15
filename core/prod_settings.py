@@ -198,6 +198,18 @@ MESSAGING_FAILOVER_COOLDOWN_SECONDS = int(
 
 STORAGE_TYPE = os.getenv("STORAGE_TYPE", "AWS")
 
+# Backend for clients.storage: s3 | azure | memory.
+# Falls back to STORAGE_TYPE ("AWS" is an alias for "s3") so existing
+# deployments keep working without an env change.
+STORAGE_PROVIDER = os.getenv("STORAGE_PROVIDER", "")
+
+# Azure Blob Storage
+AZURE_STORAGE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "")
+AZURE_STORAGE_ACCOUNT_NAME = os.getenv("AZURE_STORAGE_ACCOUNT_NAME", "")
+AZURE_STORAGE_ACCOUNT_KEY = os.getenv("AZURE_STORAGE_ACCOUNT_KEY", "")
+AZURE_STORAGE_CONTAINER = os.getenv("AZURE_STORAGE_CONTAINER", "media")
+AZURE_STORAGE_CUSTOM_DOMAIN = os.getenv("AZURE_STORAGE_CUSTOM_DOMAIN", "")
+
 # AWS CONFIG
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")

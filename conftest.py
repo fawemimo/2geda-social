@@ -64,6 +64,26 @@ def sms_outbox(monkeypatch):
     return provider
 
 
+@pytest.fixture(autouse=True)
+def storage_objects(monkeypatch):
+    """Blocks outbound object storage for every backend.
+
+    Without this, any code path that builds a default StorageService uploads to
+    the real S3 bucket using whatever credentials are in the environment — a
+    test run should never touch production storage. Returns the provider, so
+    `storage_objects.objects` holds every stored key.
+    """
+    from clients.storage import registry
+    from clients.storage.providers.local import MemoryProvider
+
+    provider = MemoryProvider()
+    monkeypatch.setattr(registry, "get_provider", lambda name=None: provider)
+    monkeypatch.setattr(
+        "clients.storage.service.get_provider", lambda name=None: provider
+    )
+    return provider
+
+
 # Fakes for service-layer interfaces.
 
 

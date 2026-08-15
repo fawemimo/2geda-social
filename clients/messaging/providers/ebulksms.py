@@ -24,7 +24,6 @@ DEFAULT_BASE_URL = "https://api.ebulksms.com"
 class EBulkSMSProvider(MessagingProvider):
 
     name = "ebulksms"
-    # Declared per-instance in __init__; this is the conservative default.
     channels = frozenset({Channel.SMS})
 
     def __init__(
@@ -90,7 +89,7 @@ class EBulkSMSProvider(MessagingProvider):
             data = self._parse(response)
 
             if not response.ok:
-                logger.error(
+                logger.exception(
                     "EBulkSMS %s error http=%s", message.channel, response.status_code
                 )
                 raise MessagingError(
@@ -104,7 +103,9 @@ class EBulkSMSProvider(MessagingProvider):
 
             # EBulkSMS signals failure in the body with HTTP 200.
             status = str(
-                data.get("response", {}).get("status", "") if isinstance(data, dict) else ""
+                data.get("response", {}).get("status", "")
+                if isinstance(data, dict)
+                else ""
             )
             if status.upper() != "SUCCESS":
                 raise MessagingError(

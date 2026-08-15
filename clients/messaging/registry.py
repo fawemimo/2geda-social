@@ -76,7 +76,7 @@ def get_messaging_provider(channel: Channel | None = None) -> MessagingProvider:
         try:
             providers.append(get_provider(name))
         except ValueError:
-            logger.error("Skipping unknown messaging provider %r in chain", name)
+            logger.exception("Skipping unknown messaging provider %r in chain", name)
     if not providers:
         raise ValueError(
             f"No usable messaging providers in chain {names!r}. "

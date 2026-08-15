@@ -7,6 +7,7 @@ from tickets.models import Event, PaymentTransaction, Payout, SellerProfile, Tic
 from tickets.services.exceptions import PaymentVerificationFailed
 from utils.enum import PaymentStatus, TransactionType
 from utils.generators import generate_payout_reference
+
 logger = logging.getLogger(__name__)
 
 PAYSTACK_BASE = "https://api.paystack.co"
@@ -33,9 +34,7 @@ class PaymentService:
             "email": email,
             "amount": int(amount * 100),
             "reference": reference,
-            "callback_url": getattr(
-                settings, "PAYSTACK_CALLBACK_URL", ""
-            ),
+            "callback_url": getattr(settings, "PAYSTACK_CALLBACK_URL", ""),
         }
         if metadata:
             payload["metadata"] = metadata
@@ -48,8 +47,9 @@ class PaymentService:
         )
         data = resp.json()
         if not data.get("status"):
-            logger.error(
-                "Paystack init failed: %s", data.get("message"),
+            logger.exception(
+                "Paystack init failed: %s",
+                data.get("message"),
                 extra={"reference": reference},
             )
             raise PaymentVerificationFailed(
@@ -66,8 +66,9 @@ class PaymentService:
         )
         data = resp.json()
         if not data.get("status"):
-            logger.error(
-                "Paystack verify failed: %s", data.get("message"),
+            logger.exception(
+                "Paystack verify failed: %s",
+                data.get("message"),
                 extra={"reference": reference},
             )
             raise PaymentVerificationFailed(
@@ -108,7 +109,7 @@ class PaymentService:
         if existing:
             logger.warning("Duplicate webhook for reference: %s", reference)
             return
-        
+
         TicketService.verify_purchase(reference)
 
         logger.info("Webhook charge.success processed: %s", reference)

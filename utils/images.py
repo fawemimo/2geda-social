@@ -1,9 +1,3 @@
-"""Profile-image decoding, validation and normalisation.
-
-Kept separate from `clients.aws.storage` so it can be unit-tested without AWS
-credentials, and reused by any flow that needs a safe, web-optimised raster.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -14,14 +8,6 @@ from PIL import Image, ImageOps
 
 logger = logging.getLogger(__name__)
 
-
-# HEIC/HEIF is what iOS cameras produce by default. Pillow cannot decode it
-# alone, so register the pillow-heif plugin here — this module is imported by
-# both the serializer and the worker task, so one registration covers the
-# validation path and the processing path.
-#
-# Guarded so a deployment without the wheel degrades to "HEIC rejected with a
-# clear message" instead of failing deep inside the worker.
 try:
     import pillow_heif
 except ImportError:  # pragma: no cover - depends on deployment
@@ -38,7 +24,6 @@ _BASE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}
 _HEIF_FORMATS = {"HEIF"}
 _HEIF_EXTENSIONS = {".heic", ".heif", ".hif"}
 
-# Formats Pillow can actually decode in this build.
 ALLOWED_FORMATS: frozenset[str] = frozenset(
     _BASE_FORMATS | (_HEIF_FORMATS if HEIF_SUPPORTED else set())
 )
@@ -71,10 +56,6 @@ class ImageValidationError(ValueError):
 
 
 def probe(raw: bytes) -> dict[str, Any]:
-    """Cheap header-only inspection. Does not decode pixel data.
-
-    Raises ImageValidationError if the bytes are not a supported image.
-    """
     try:
         with Image.open(BytesIO(raw)) as img:
             fmt = (img.format or "").upper()
@@ -95,12 +76,6 @@ def probe(raw: bytes) -> dict[str, Any]:
 
 
 def normalize(raw: bytes, *, max_edge: int) -> dict[str, Any]:
-    """Decode, orient, downscale and re-encode a profile image.
-
-    Returns the encoded buffer plus the metadata the Media row needs. Output is
-    always progressive JPEG: universally decodable, small, and it drops every
-    source metadata block (including EXIF GPS coordinates) as a side effect.
-    """
     try:
         with Image.open(BytesIO(raw)) as img:
             source_format = (img.format or "").upper()

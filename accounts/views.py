@@ -75,8 +75,6 @@ def _client_ip(request) -> str | None:
     return request.META.get("REMOTE_ADDR")
 
 
-#  registration & OTP 
-
 
 class RegisterView(APIView):
     permission_classes = [AllowAny]
@@ -171,11 +169,7 @@ class VerifyRegistrationOTPView(APIView):
         )
 
 
-class ResendOTPView(APIView):
-    """
-    Resend OTP. For purpose=registration the OTP lives in Redis; for
-    every other purpose the DB-backed OTPService is used.
-    """
+class ResendOTPView(APIView):   
     permission_classes = [AllowAny]
     throttle_classes = [OTPRequestThrottle]
     throttle_scope = "otp_request"
@@ -300,9 +294,6 @@ class TokenRefreshView(APIView):
         tokens = TokenService().refresh(data.validated_data["refresh"])
         return APIResponse.success(message="Token refreshed successfully.", data=tokens)
 
-
-#  password reset / change 
-
 class PasswordResetRequestView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [OTPRequestThrottle]
@@ -420,16 +411,10 @@ class ProfileView(APIView):
 
 
 def _dispatch_profile_image_upload(request, field: str) -> Response:
-    """Accept a profile image and hand the heavy work to Celery.
-
-    The request thread only validates, parks the bytes in Redis and reserves the
-    final S3 key — so it returns in single-digit milliseconds regardless of how
-    slow S3 is. Decoding, downscaling and uploading happen on a worker.
-    """
     from django.db import transaction
 
     from accounts.tasks import process_profile_image
-    from clients.aws.storage import build_key, public_url
+    from clients.storage import StorageService
     from medias.models import Media
     from utils.enum import MediaType, ProcessingStatus
     from utils.staging import stage_blob
@@ -441,10 +426,9 @@ def _dispatch_profile_image_upload(request, field: str) -> Response:
     file.seek(0)
     staging_key = stage_blob(file.read())
 
-    # Reserve the object key now so the client learns its final URL up front and
-    # can prefetch or optimistically render it.
-    storage_key = build_key(MediaType.IMAGE.value, ".jpg")
-    final_url = public_url(storage_key)
+    storage = StorageService()
+    storage_key = storage.build_key(MediaType.IMAGE.value, ".jpg")
+    final_url = storage.url_for(storage_key)
 
     with transaction.atomic():
         media = Media.objects.create(
@@ -477,7 +461,6 @@ def _dispatch_profile_image_upload(request, field: str) -> Response:
 
 
 def _delete_profile_image(request, field: str) -> Response:
-    """Detach a profile image immediately; reclaim the S3 object in the background."""
     from django.db import transaction
 
     from accounts.tasks import cleanup_old_profile_image
@@ -492,8 +475,7 @@ def _delete_profile_image(request, field: str) -> Response:
 
     old_media_id = str(old_media.pk)
 
-    # Detach synchronously so the very next read of the profile is correct;
-    # only the slow S3 round-trip is deferred.
+    
     with transaction.atomic():
         setattr(profile, field, None)
         profile.save(update_fields=[field])
@@ -559,10 +541,7 @@ class ProfileDisplayPhotoUpdateView(APIView):
 
 
 class DeviceListCreateView(APIView):
-    """
-    GET paginated list of the caller's devices.
-    POST register a new device for the caller.
-    """
+    
     permission_classes = [IsAuthenticated]
     pagination_message = "Devices fetched successfully."
 
@@ -654,8 +633,6 @@ class DeviceTrustView(APIView):
         )
 
 
-#  user listing & detail 
-
 class UserListView(APIView):
     permission_classes = [IsAuthenticated]
     pagination_message = "Users fetched successfully."
@@ -728,19 +705,10 @@ class UserDetailView(APIView):
         )
         cache.set(cache_key, response.data, timeout=CACHE_DETAIL_TTL)
         return response
-        serializer = UserDetailSerializer(user)
-        return APIResponse.success(
-            message="User fetched successfully.",
-            data=serializer.data,
-        )
 
-
-#  connect & discovery 
+ 
 
 class ConnectDiscoveryView(APIView):
-    """
-    GET Fetch discoverable users based on distance, city, state, or country.
-    """
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
@@ -771,9 +739,6 @@ class ConnectDiscoveryView(APIView):
 
 
 class ConnectRequestView(APIView):
-    """
-    POST  Send a connection request to a specific user asynchronously.
-    """
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
@@ -794,9 +759,6 @@ class ConnectRequestView(APIView):
         )
 
 class ConnectRespondView(APIView):
-    """
-    POST Accept or reject a connection request asynchronously.
-    """
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
@@ -824,9 +786,6 @@ class ConnectRespondView(APIView):
 
 
 class UserLocationUpdateView(APIView):
-    """
-    POST  Ingest user location coordinates asynchronously to handle high throughput.
-    """
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(request_body=UserLocationIngestSerializer)
@@ -836,9 +795,7 @@ class UserLocationUpdateView(APIView):
 
         lat = float(data.validated_data["latitude"])
         lon = float(data.validated_data["longitude"])
-
-        # Eagerly update Redis geoset for immediate discovery accuracy,
-        # while the async task handles the DB write + reverse geocoding.
+        
         from accounts.services.discovery_cache import DiscoveryCache
         uid = str(request.user.id)
         DiscoveryCache.set_location(uid, lat, lon)

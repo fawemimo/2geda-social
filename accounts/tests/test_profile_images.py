@@ -53,7 +53,7 @@ class TestProfileImageUpload:
     @patch("accounts.tasks.process_profile_image.delay")
     def test_returns_202_without_touching_s3(self, mock_delay, client, user):
         """The request path must not perform the S3 upload itself."""
-        with patch("clients.aws.storage.upload_fileobj_to_key") as mock_s3:
+        with patch("clients.storage.StorageService.upload_to_key") as mock_s3:
             resp = client.put(
                 URLS["avatar"], {"file": _upload(_png())}, format="multipart"
             )
@@ -179,10 +179,10 @@ class TestHeicUploads:
         assert resp.status_code == 400
 
     @patch("accounts.tasks.send_user_push_notification.delay")
-    @patch("clients.aws.storage.upload_fileobj_to_key")
+    @patch("clients.storage.StorageService.upload_to_key")
     def test_heic_end_to_end_through_task(self, mock_s3, _push, user):
         from accounts.tasks import process_profile_image
-        from clients.aws.storage import build_key
+        from clients.storage import build_key
         from utils.staging import stage_blob
 
         media = Media.objects.create(
@@ -206,7 +206,7 @@ class TestHeicUploads:
 class TestProcessProfileImageTask:
 
     def _stage_and_row(self, user, field="avatar", raw=None):
-        from clients.aws.storage import build_key
+        from clients.storage import build_key
         from utils.staging import stage_blob
 
         key = build_key("image", ".jpg")
@@ -218,7 +218,7 @@ class TestProcessProfileImageTask:
         return media, staging_key
 
     @patch("accounts.tasks.send_user_push_notification.delay")
-    @patch("clients.aws.storage.upload_fileobj_to_key")
+    @patch("clients.storage.StorageService.upload_to_key")
     def test_uploads_downscales_and_attaches(self, mock_s3, _push, user):
         from accounts.tasks import process_profile_image
 
@@ -246,7 +246,7 @@ class TestProcessProfileImageTask:
         assert user.profile.avatar_id == media.id
 
     @patch("accounts.tasks.send_user_push_notification.delay")
-    @patch("clients.aws.storage.upload_fileobj_to_key")
+    @patch("clients.storage.StorageService.upload_to_key")
     def test_staging_blob_is_consumed(self, _s3, _push, user):
         from accounts.tasks import process_profile_image
         from utils.staging import peek_blob
@@ -259,7 +259,7 @@ class TestProcessProfileImageTask:
         assert peek_blob(staging_key) is None, "staged bytes must be reclaimed"
 
     @patch("accounts.tasks.cleanup_old_profile_image.delay")
-    @patch("clients.aws.storage.upload_fileobj_to_key")
+    @patch("clients.storage.StorageService.upload_to_key")
     def test_replacing_queues_cleanup_of_previous(self, _s3, mock_cleanup, user):
         from accounts.tasks import process_profile_image
 
@@ -291,7 +291,7 @@ class TestProcessProfileImageTask:
         assert media.processing_status == ProcessingStatus.FAILED.value
         assert media.processing_error
 
-    @patch("clients.aws.storage.upload_fileobj_to_key")
+    @patch("clients.storage.StorageService.upload_to_key")
     def test_s3_failure_raises_so_celery_retries(self, mock_s3, user):
         from accounts.tasks import process_profile_image
 
@@ -313,10 +313,10 @@ class TestProcessProfileImageTask:
 class TestProfileImageDelete:
 
     @patch("accounts.tasks.cleanup_old_profile_image.delay")
-    @patch("clients.aws.storage.upload_fileobj_to_key")
+    @patch("clients.storage.StorageService.upload_to_key")
     def test_detaches_now_and_defers_s3(self, _s3, mock_cleanup, client, user):
         from accounts.tasks import process_profile_image
-        from clients.aws.storage import build_key
+        from clients.storage import build_key
         from utils.staging import stage_blob
 
         media = Media.objects.create(
@@ -333,7 +333,7 @@ class TestProfileImageDelete:
         # with a fresh User so request.user does not serve a cached relation.
         client.force_authenticate(user=User.objects.get(pk=user.pk))
 
-        with patch("clients.aws.storage.delete_object") as mock_del:
+        with patch("clients.storage.StorageService.delete") as mock_del:
             resp = client.delete(URLS["avatar"])
 
         assert resp.status_code == 200
@@ -358,7 +358,7 @@ class TestProfileImageDelete:
             owner=user, media_type="image", storage_key="images/abc.jpg",
             processing_status=ProcessingStatus.READY.value,
         )
-        with patch("clients.aws.storage.delete_object") as mock_del:
+        with patch("clients.storage.StorageService.delete") as mock_del:
             cleanup_old_profile_image(
                 media_id=str(media.id), user_id=str(user.id),
                 field="avatar", notify=False,

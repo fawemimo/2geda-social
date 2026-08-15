@@ -18,9 +18,6 @@ from clients.messaging.phone import to_whatsapp
 logger = logging.getLogger(__name__)
 
 API_ROOT = "https://api.twilio.com/2010-04-01"
-
-# Twilio error codes that will never succeed on retry (bad number, opted out,
-# unreachable destination). Anything else is treated as transient.
 _PERMANENT_CODES = frozenset({21211, 21214, 21606, 21610, 21612, 21614, 63003})
 
 
@@ -77,9 +74,11 @@ class TwilioProvider(MessagingProvider):
             if not response.ok:
                 code = payload.get("code")
                 # Twilio error bodies echo the recipient number — log codes only.
-                logger.error(
+                logger.exception(
                     "Twilio %s error http=%s code=%s",
-                    message.channel, response.status_code, code,
+                    message.channel,
+                    response.status_code,
+                    code,
                 )
                 raise MessagingError(
                     f"Twilio rejected the message (code={code})",

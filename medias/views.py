@@ -9,7 +9,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
 from rest_framework.views import APIView
 
-from clients.aws.storage import _classify
+from clients.storage import classify
 from medias.models import Media
 from medias.serializers import (
     MediaPresignedUrlSerializer,
@@ -41,7 +41,7 @@ class MediaUploadView(APIView):
         filename = getattr(file, "name", "") or "upload"
 
         try:
-            info = _classify(filename)
+            info = classify(filename)
         except ValueError as exc:
             return APIResponse.error(message=str(exc), status_code=400)
 
@@ -152,39 +152,40 @@ class MediaViewSet(viewsets.ModelViewSet):
         file_name = serializer.validated_data["file_name"]
 
         try:
-            info = _classify(file_name)
+            info = classify(file_name)
         except ValueError as exc:
             return APIResponse.error(message=str(exc), status_code=400)
 
-        from clients.aws.storage import generate_presigned_upload_url
+        from clients.storage import StorageService
 
         try:
-            result = generate_presigned_upload_url(file_name)
-        except ValueError as exc:
+            signed = StorageService().presigned_upload(file_name)
+        except Exception as exc:
             return APIResponse.error(message=str(exc), status_code=500)
 
         media = Media.objects.create(
             owner=request.user,
             media_type=info["media_type"],
-            storage_key=result["key"],
+            storage_key=signed.key,
             original_filename=file_name,
             processing_status=ProcessingStatus.PENDING.value,
         )
 
         logger.info(
             "Presigned URL issued | id=%s key=%s user=%s",
-            media.id, result["key"], request.user.id,
+            media.id, signed.key, request.user.id,
         )
 
         return APIResponse.success(
-            message="Presigned URL generated. Upload file directly to S3, "
+            message="Presigned URL generated. Upload the file directly to storage, "
                     "then POST to confirm-upload.",
             data={
-                "url": result["url"],
-                "key": result["key"],
+                "url": signed.url,
+                "key": signed.key,
                 "media_id": str(media.id),
-                "media_type": result["media_type"],
-                "content_type": result["content_type"],
+                "media_type": signed.media_type,
+                "content_type": signed.content_type,
+                "headers": signed.headers,
             },
         )
 

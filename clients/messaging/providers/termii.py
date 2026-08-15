@@ -70,9 +70,11 @@ class TermiiProvider(MessagingProvider):
             data = self._parse(response)
 
             if not response.ok:
-                logger.error(
+                logger.exception(
                     "Termii %s error http=%s code=%s",
-                    message.channel, response.status_code, data.get("code"),
+                    message.channel,
+                    response.status_code,
+                    data.get("code"),
                 )
                 raise MessagingError(
                     f"Termii rejected the message: {data.get('message', response.status_code)}",

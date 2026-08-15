@@ -21,7 +21,7 @@ def dispatch_notification(notification_id: str) -> None:
     try:
         notification = Notification.objects.get(pk=notification_id)
     except Notification.DoesNotExist:
-        logger.error("Notification %s not found for dispatch", notification_id)
+        logger.exception("Notification %s not found for dispatch", notification_id)
         return
 
     NotificationDispatcher.dispatch(notification)

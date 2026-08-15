@@ -33,10 +33,7 @@ def release_expired_reservations(*, batch_size: int = 500) -> dict:
 
     released_count = 0
     for purchase_id in candidate_ids:
-        # select_for_update() must be evaluated inside the transaction that
-        # holds the lock — evaluating it outside one raises
-        # TransactionManagementError. The filter is re-applied here so the row
-        # is re-checked under the lock, not as it looked when we listed it.
+        
         with transaction.atomic():
             purchase = (
                 TicketPurchase.objects.select_for_update(skip_locked=True)
@@ -87,9 +84,7 @@ def send_purchase_confirmation_email(purchase_id: str) -> None:
     tickets = purchase.tickets.all()
 
     subject = f"Ticket Purchase Confirmed — {purchase.event.title}"
-    ticket_list = "\n".join(
-        [f"  • {t.ticket_code} — ₦{t.price_paid}" for t in tickets]
-    )
+    ticket_list = "\n".join([f"  • {t.ticket_code} — ₦{t.price_paid}" for t in tickets])
     message = (
         f"Hi {buyer.username},\n\n"
         f"Your purchase for {purchase.event.title} is confirmed!\n\n"
@@ -112,7 +107,7 @@ def send_purchase_confirmation_email(purchase_id: str) -> None:
         )
         logger.info("Purchase confirmation email sent for purchase %s", purchase_id)
     except Exception as e:
-        logger.error("Failed to send email for purchase %s: %s", purchase_id, e)
+        logger.exception("Failed to send email for purchase %s: %s", purchase_id, e)
 
 
 @shared_task(
@@ -153,13 +148,8 @@ def send_seller_purchase_notification(purchase_id: str) -> None:
                 "total_amount": str(purchase.total_amount),
             },
         )
-        logger.info(
-            "Seller notification sent for purchase %s", purchase_id
-        )
+        logger.info("Seller notification sent for purchase %s", purchase_id)
     except Exception as e:
-        logger.error(
+        logger.exception(
             "Failed to send seller notification for %s: %s", purchase_id, e
         )
-
-
-
