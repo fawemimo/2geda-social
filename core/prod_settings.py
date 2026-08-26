@@ -118,6 +118,20 @@ CELERY_BEAT_SCHEDULE = {
         "task": "tickets.tasks.release_expired_reservations",
         "schedule": crontab(minute="*/5"),
     },
+    # Advert flight window. Every minute so a start/end time is honoured to the
+    # minute the advertiser chose.
+    "activate-due-advertisements-every-minute": {
+        "task": "advertisements.tasks.activate_due_advertisements",
+        "schedule": crontab(minute="*"),
+    },
+    "complete-expired-advertisements-every-minute": {
+        "task": "advertisements.tasks.complete_expired_advertisements",
+        "schedule": crontab(minute="*"),
+    },
+    "pause-exhausted-advertisements-every-5-minutes": {
+        "task": "advertisements.tasks.pause_exhausted_advertisements",
+        "schedule": crontab(minute="*/5"),
+    },
 }
 
 # Account / OTP tuning knobs — overridable via env without touching code.

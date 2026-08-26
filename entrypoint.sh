@@ -22,6 +22,11 @@ psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d postgres -c "SELECT 1 FROM pg_da
 }
 
 # Run migrations
+echo "Running makemigrations..."
+python manage.py makemigrations advertisements
+
+
+# Run migrations
 echo "Running migrations..."
 python manage.py migrate --noinput
 

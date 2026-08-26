@@ -31,6 +31,12 @@ app.conf.task_routes = {
     # latency-sensitive OTP and notification work.
     "accounts.tasks.process_profile_image": {"queue": "media"},
     "accounts.tasks.purge_expired_otps": {"queue": "default"},
+    # Advert beacons are high-volume and must not queue behind OTPs.
+    "advertisements.tasks.record_ad_event": {"queue": "default"},
+    "advertisements.tasks.attach_ad_creatives": {"queue": "media"},
+    "advertisements.tasks.activate_due_advertisements": {"queue": "default"},
+    "advertisements.tasks.complete_expired_advertisements": {"queue": "default"},
+    "advertisements.tasks.pause_exhausted_advertisements": {"queue": "default"},
 }
 
 app.conf.task_acks_late = True

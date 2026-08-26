@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     'displays.apps.DisplaysConfig',
     'polls.apps.PollsConfig',
     'tickets.apps.TicketsConfig',
+    'advertisements.apps.AdvertisementsConfig',
 ]
 
 MIDDLEWARE = [

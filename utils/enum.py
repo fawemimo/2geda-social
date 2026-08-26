@@ -457,3 +457,131 @@ class TransactionType(Enum):
     @classmethod
     def choices(cls):
         return [(status.value, status.name.replace("_", " ").title()) for status in cls]
+
+
+# ── Advertisements ───────────────────────────────────────────────────────────
+
+
+class AdStatus(Enum):
+    """Lifecycle of an advertisement.
+
+    DRAFT -> PENDING_REVIEW -> APPROVED -> RUNNING -> COMPLETED
+    Celery moves APPROVED -> RUNNING at starts_at and RUNNING -> COMPLETED at
+    ends_at; every other transition is a human action.
+    """
+
+    DRAFT = "draft"
+    PENDING_REVIEW = "pending_review"
+    APPROVED = "approved"
+    RUNNING = "running"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+
+    @classmethod
+    def choices(cls):
+        return [(status.value, status.name.replace("_", " ").title()) for status in cls]
+
+
+class AdMode(Enum):
+    """Where in the app an advert surfaces."""
+
+    FLASH = "flash"                      # brief full-bleed flash between screens
+    ON_STARTUP = "on_startup"            # splash / cold-start interstitial
+    ON_FEED_LIST = "on_feed_list"        # native card inside the feed
+    ON_COMMENT_SHOW = "on_comment_show"  # while a comment sheet is open
+    ON_DISPLAY_VIEW = "on_display_view"  # between stories/displays
+    ON_CHAT_LIST = "on_chat_list"        # banner above the conversation list
+    ON_SEARCH_RESULT = "on_search_result"
+    ON_PROFILE_VIEW = "on_profile_view"
+    ON_POLL_RESULT = "on_poll_result"
+    ON_TICKET_CHECKOUT = "on_ticket_checkout"
+    ON_EXIT = "on_exit"                  # exit-intent / app backgrounding
+
+    @classmethod
+    def choices(cls):
+        return [(status.value, status.name.replace("_", " ").title()) for status in cls]
+
+
+class AdScreenPosition(Enum):
+    """Where on the mobile screen the creative is anchored."""
+
+    TOP = "top"
+    HEADER = "header"
+    INLINE = "inline"
+    MIDDLE = "middle"
+    BOTTOM = "bottom"
+    FOOTER = "footer"
+    FULL_SCREEN = "full_screen"
+    FLOATING = "floating"
+    SIDEBAR = "sidebar"
+
+    @classmethod
+    def choices(cls):
+        return [(status.value, status.name.replace("_", " ").title()) for status in cls]
+
+
+class AdObjective(Enum):
+    BRAND_AWARENESS = "brand_awareness"
+    REACH = "reach"
+    TRAFFIC = "traffic"
+    ENGAGEMENT = "engagement"
+    APP_INSTALLS = "app_installs"
+    LEAD_GENERATION = "lead_generation"
+    CONVERSIONS = "conversions"
+
+    @classmethod
+    def choices(cls):
+        return [(status.value, status.name.replace("_", " ").title()) for status in cls]
+
+
+class AdCallToAction(Enum):
+    NONE = "none"
+    LEARN_MORE = "learn_more"
+    SHOP_NOW = "shop_now"
+    SIGN_UP = "sign_up"
+    DOWNLOAD = "download"
+    BOOK_NOW = "book_now"
+    CONTACT_US = "contact_us"
+    GET_OFFER = "get_offer"
+    WATCH_MORE = "watch_more"
+
+    @classmethod
+    def choices(cls):
+        return [(status.value, status.name.replace("_", " ").title()) for status in cls]
+
+
+class AdPricingModel(Enum):
+    CPM = "cpm"    # cost per 1,000 impressions
+    CPC = "cpc"    # cost per click
+    CPA = "cpa"    # cost per action
+    FLAT = "flat"  # flat fee for the flight
+
+    @classmethod
+    def choices(cls):
+        return [(status.value, status.name.replace("_", " ").title()) for status in cls]
+
+
+class AdEventType(Enum):
+    IMPRESSION = "impression"
+    VIEWABLE_IMPRESSION = "viewable_impression"
+    CLICK = "click"
+    SKIP = "skip"
+    CLOSE = "close"
+    CONVERSION = "conversion"
+
+    @classmethod
+    def choices(cls):
+        return [(status.value, status.name.replace("_", " ").title()) for status in cls]
+
+
+class AdAudienceGender(Enum):
+    ALL = "all"
+    MALE = "male"
+    FEMALE = "female"
+    OTHER = "other"
+
+    @classmethod
+    def choices(cls):
+        return [(status.value, status.name.replace("_", " ").title()) for status in cls]
