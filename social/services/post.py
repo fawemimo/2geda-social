@@ -1,10 +1,9 @@
 import logging
 from django.db import transaction
 from accounts.models import User
-from medias.models import Media
 from social.event_broadcaster import broadcast_post_event
-from social.models import Post, PostMedia, Reshare
-from social.tasks import broadcast_post_to_followers, delete_media_files, notify_followers, process_post_media
+from social.models import Post, Reshare
+from social.tasks import broadcast_post_to_followers, notify_followers, process_post_media
 from utils.enum import NotificationType
 
 logger = logging.getLogger(__name__)
@@ -36,8 +35,10 @@ class PostService:
         )
 
         if media_ids:
-            PostService._attach_media(post, media_ids)
-            transaction.on_commit(lambda: process_post_media.delay(str(post.id), media_ids))
+            media_id_strs = [str(m) for m in media_ids]
+            transaction.on_commit(
+                lambda: process_post_media.delay(str(post.id), media_id_strs)
+            )
 
         if reshare_of_id:
             try:
@@ -82,16 +83,16 @@ class PostService:
 
         media_ids = validated_data.get("media_ids")
         if media_ids is not None:
-            old_ids = list(instance.attachments.values_list("media_id", flat=True))
-            if set(media_ids) != set(old_ids):
-                old_media_keys = list(
-                    Media.objects.filter(id__in=old_ids).values_list("storage_key", flat=True)
-                )
+            old_ids = {str(pk) for pk in instance.attachments.values_list("media_id", flat=True)}
+            new_ids = [str(m) for m in media_ids]
+            if set(new_ids) != old_ids:
+                # Detach only. The Media rows are user-owned assets that may be
+                # attached to other posts, so editing a post must not delete the
+                # underlying objects from storage.
                 instance.attachments.all().delete()
-                PostService._attach_media(instance, media_ids)
-                transaction.on_commit(lambda: process_post_media.delay(str(instance.id), media_ids))
-                if old_media_keys:
-                    transaction.on_commit(lambda: delete_media_files.delay(old_media_keys))
+                transaction.on_commit(
+                    lambda: process_post_media.delay(str(instance.id), new_ids)
+                )
 
         instance.save()
 
@@ -114,22 +115,3 @@ class PostService:
             "event": "post.deleted",
             "post_id": post_id,
         })
-
-    @staticmethod
-    def _attach_media(post: Post, media_ids: list[str]) -> None:
-        if not media_ids:
-            return
-        medias = {
-            str(m.pk): m
-            for m in Media.objects.filter(pk__in=media_ids).only("pk")
-        }
-        post_media_objs = []
-        for idx, media_id in enumerate(media_ids):
-            media = medias.get(media_id)
-            if media is None:
-                logger.warning("Media %s not found, skipping", media_id)
-                continue
-            post_media_objs.append(
-                PostMedia(post=post, media=media, position=idx)
-            )
-        PostMedia.objects.bulk_create(post_media_objs)

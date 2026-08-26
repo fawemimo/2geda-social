@@ -15,49 +15,52 @@ logger = logging.getLogger(__name__)
     max_retries=3,
     acks_late=True,
 )
-def process_post_media(post_id: str, media_ids: list[str]) -> None:
-    from medias.models import Media, ProcessingStatus
+def process_post_media(post_id: str, media_ids: list[str]) -> dict:
 
-    logger.info("Processing media for post %s: %s", post_id, media_ids)
+    from django.db import transaction as db_transaction
 
-    for media_id in media_ids:
-        try:
-            media = Media.objects.get(pk=media_id)
-        except Media.DoesNotExist:
-            logger.warning("Media %s not found, skipping", media_id)
+    from medias.models import Media
+    from social.models import Post, PostMedia
+
+    if not media_ids:
+        return {"attached": 0, "skipped": []}
+
+    post = Post.objects.filter(pk=post_id).only("pk", "author_id").first()
+    if post is None:
+        logger.warning("Post %s not found; nothing to attach", post_id)
+        return {"attached": 0, "skipped": [str(m) for m in media_ids]}
+
+    # Only the author's own, non-deleted media may be attached — a post must not
+    # be able to embed another user's asset by id.
+    owned = {
+        str(pk): pk
+        for pk in Media.objects.filter(
+            pk__in=media_ids, owner_id=post.author_id, is_deleted=False
+        ).values_list("pk", flat=True)
+    }
+
+    rows, skipped = [], []
+    for position, media_id in enumerate(media_ids):
+        key = str(media_id)
+        if key not in owned:
+            skipped.append(key)
             continue
+        rows.append(PostMedia(post_id=post.pk, media_id=owned[key], position=position))
 
-        if media.processing_status == ProcessingStatus.READY.value:
-            logger.info("Media %s already processed", media_id)
-            continue
+    if skipped:
+        logger.warning(
+            "Post %s: %d media id(s) skipped (missing, deleted, or not owned by the author)",
+            post_id, len(skipped),
+        )
 
-        try:
-            from clients.storage import StorageService
+    if not rows:
+        return {"attached": 0, "skipped": skipped}
 
-            if hasattr(media, "file") and media.file:
-                result = StorageService().upload(media.file)
-                media.storage_key = result.key
-                media.cdn_url = result.url
-                media.mime_type = result.content_type
-                media.file_size_bytes = result.size_bytes
-                media.media_type = result.media_type
-                media.width_px = result.width
-                media.height_px = result.height
-                media.processing_status = ProcessingStatus.READY.value
-                media.save(update_fields=[
-                    "storage_key", "cdn_url", "mime_type", "file_size_bytes",
-                    "media_type", "width_px", "height_px", "processing_status",
-                ])
-                logger.info("Media %s uploaded and set to ready", media_id)
-            else:
-                media.processing_status = ProcessingStatus.READY.value
-                media.save(update_fields=["processing_status"])
-                logger.info("Media %s marked as ready (no local file)", media_id)
-        except Exception as exc:
-            logger.exception("Failed to upload media %s: %s", media_id, exc)
-            media.processing_status = ProcessingStatus.FAILED.value
-            media.processing_error = str(exc)[:500]
-            media.save(update_fields=["processing_status", "processing_error"])
+    with db_transaction.atomic():
+        PostMedia.objects.bulk_create(rows, ignore_conflicts=True)
+
+    logger.info("Post %s: attached %d media", post_id, len(rows))
+    return {"attached": len(rows), "skipped": skipped}
 
 
 @shared_task(

@@ -17,6 +17,13 @@ from clients.messaging.phone import to_national_digits
 
 logger = logging.getLogger(__name__)
 
+
+def _resolve(explicit: str | None, name: str, default: str = "") -> str:
+
+    if explicit is not None:
+        return explicit
+    return os.getenv(name, default) or default
+
 DEFAULT_BASE_URL = "https://api.ng.termii.com"
 
 _TERMII_CHANNEL = {
@@ -38,8 +45,8 @@ class TermiiProvider(MessagingProvider):
         base_url: str | None = None,
         timeout: int | None = None,
     ) -> None:
-        self.api_key = api_key or os.getenv("TERMII_API_KEY", "")
-        self.sender_id = sender_id or os.getenv("TERMII_SENDER_ID", "2geda")
+        self.api_key = _resolve(api_key, "TERMII_API_KEY")
+        self.sender_id = _resolve(sender_id, "TERMII_SENDER_ID", "2geda")
         self.base_url = (
             base_url or os.getenv("TERMII_BASE_URL") or DEFAULT_BASE_URL
         ).rstrip("/")

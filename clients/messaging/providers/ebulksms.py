@@ -18,6 +18,13 @@ from clients.messaging.phone import to_national_digits
 
 logger = logging.getLogger(__name__)
 
+
+def _resolve(explicit: str | None, name: str, default: str = "") -> str:
+
+    if explicit is not None:
+        return explicit
+    return os.getenv(name, default) or default
+
 DEFAULT_BASE_URL = "https://api.ebulksms.com"
 
 
@@ -36,13 +43,13 @@ class EBulkSMSProvider(MessagingProvider):
         whatsapp_url: str | None = None,
         timeout: int | None = None,
     ) -> None:
-        self.username = username or os.getenv("EBULKSMS_USERNAME", "")
-        self.api_key = api_key or os.getenv("EBULKSMS_APIKEY", "")
-        self.sender_id = sender_id or os.getenv("EBULKSMS_SENDER_ID", "2Geda")
+        self.username = _resolve(username, "EBULKSMS_USERNAME")
+        self.api_key = _resolve(api_key, "EBULKSMS_APIKEY")
+        self.sender_id = _resolve(sender_id, "EBULKSMS_SENDER_ID", "2Geda")
         self.base_url = (
             base_url or os.getenv("EBULKSMS_BASEURL") or DEFAULT_BASE_URL
         ).rstrip("/")
-        self.whatsapp_url = whatsapp_url or os.getenv("EBULKSMS_WHATSAPP_URL", "")
+        self.whatsapp_url = _resolve(whatsapp_url, "EBULKSMS_WHATSAPP_URL")
         self.timeout = timeout or int(os.getenv("EBULKSMS_TIMEOUT", "20"))
 
         # Shadow the class attribute so capability reflects configuration.

@@ -17,6 +17,13 @@ from clients.messaging.phone import to_whatsapp
 
 logger = logging.getLogger(__name__)
 
+
+def _resolve(explicit: str | None, name: str, default: str = "") -> str:
+
+    if explicit is not None:
+        return explicit
+    return os.getenv(name, default) or default
+
 API_ROOT = "https://api.twilio.com/2010-04-01"
 _PERMANENT_CODES = frozenset({21211, 21214, 21606, 21610, 21612, 21614, 63003})
 
@@ -35,10 +42,10 @@ class TwilioProvider(MessagingProvider):
         whatsapp_from: str | None = None,
         timeout: int | None = None,
     ) -> None:
-        self.account_sid = account_sid or os.getenv("TWILIO_ACCOUNT_SID", "")
-        self.auth_token = auth_token or os.getenv("TWILIO_AUTH_TOKEN", "")
-        self.sms_from = sms_from or os.getenv("TWILIO_FROM_NUMBER", "")
-        self.whatsapp_from = whatsapp_from or os.getenv("TWILIO_WHATSAPP_FROM", "")
+        self.account_sid = _resolve(account_sid, "TWILIO_ACCOUNT_SID")
+        self.auth_token = _resolve(auth_token, "TWILIO_AUTH_TOKEN")
+        self.sms_from = _resolve(sms_from, "TWILIO_FROM_NUMBER")
+        self.whatsapp_from = _resolve(whatsapp_from, "TWILIO_WHATSAPP_FROM")
         self.timeout = timeout or int(os.getenv("TWILIO_TIMEOUT", "20"))
 
     def is_configured(self) -> bool:

@@ -45,7 +45,11 @@ def get_provider(name: str) -> MessagingProvider:
 
 
 def _setting(name: str) -> str | None:
-    return getattr(settings, name, None) or os.getenv(name)
+
+    value = getattr(settings, name, None)
+    if value is not None:
+        return value
+    return os.getenv(name)
 
 
 def configured_chain(channel: Channel | None = None) -> tuple[str, ...]:

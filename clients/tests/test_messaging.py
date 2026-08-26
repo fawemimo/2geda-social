@@ -410,6 +410,8 @@ class TestRegistry:
 
     def test_per_channel_override(self, settings):
         settings.MESSAGING_PROVIDERS = "ebulksms,termii"
+        # "" means "no override for this channel" -> inherit the default chain.
+        settings.MESSAGING_PROVIDERS_SMS = ""
         settings.MESSAGING_PROVIDERS_WHATSAPP = "twilio,termii"
         assert configured_chain(Channel.SMS) == ("ebulksms", "termii")
         assert configured_chain(Channel.WHATSAPP) == ("twilio", "termii")

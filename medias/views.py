@@ -24,11 +24,6 @@ logger = logging.getLogger(__name__)
 
 
 class MediaUploadView(APIView):
-    """Server-side upload — file is queued to Celery for S3 upload.
-
-    The request returns immediately with processing_status=PENDING;
-    the Celery task uploads to S3 and updates the record to READY.
-    """
 
     permission_classes = [IsAuthenticated]
     parser_classes = [parsers.MultiPartParser, parsers.FormParser]
@@ -141,11 +136,6 @@ class MediaViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["post"], url_path="presigned-url")
     def presigned_url(self, request):
-        """Generate a presigned S3 URL for direct client-side upload.
-
-        Creates a Media record (PENDING), returns the presigned URL + media_id.
-        The client uploads directly to S3, then calls confirm-upload.
-        """
         serializer = MediaPresignedUrlSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 

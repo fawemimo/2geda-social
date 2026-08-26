@@ -78,7 +78,9 @@ class PostViewSet(viewsets.ModelViewSet):
         post = PostService.create(author=request.user, validated_data=serializer.validated_data)
         return APIResponse.success(
             message="Post created successfully.",
-            data=PostListSerializer(post, context={"request": request}).data,
+            data={
+                "id": post.id
+            },
             status_code=status.HTTP_201_CREATED,
         )
 
