@@ -1,17 +1,18 @@
 import os
 import requests
+from config import get_str
 # Client for interacting with Google Maps Location/Geocoding services.
 
 class GoogleLocation:
     def __init__(self, api_key: str | None = None):
-        self.api_key = api_key or os.getenv("GOOGLE_MAPS_API_KEY")
+        self.api_key = api_key or get_str("GOOGLE_MAPS_API_KEY")
 # Reverse geocodes the given latitude and longitude into address components.
 
     def get_address(self, latitude: float, longitude: float) -> dict | None:
         if not self.api_key:
             raise ValueError("Google Maps API key is missing. Set GOOGLE_MAPS_API_KEY in your environment.")
 
-        url = os.getenv("GOOGLE_MAPS_GEOCODE_URL")
+        url = get_str("GOOGLE_MAPS_GEOCODE_URL")
         params = {
             "latlng": f"{latitude},{longitude}",
             "key": self.api_key

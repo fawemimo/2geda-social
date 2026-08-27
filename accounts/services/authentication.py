@@ -21,6 +21,7 @@ from .interfaces import IRateLimiter
 from .otp import OTPService
 from .rate_limiter import RedisRateLimiter
 from .tokens import TokenService
+from config import get_int
 
 
 logger = logging.getLogger(__name__)
@@ -48,8 +49,8 @@ class AuthenticationService:
         self._otp = otp_service or OTPService()
         self._rate_limiter = rate_limiter or RedisRateLimiter(namespace="auth")
 
-        self._max_failed = getattr(settings, "LOGIN_MAX_FAILED_ATTEMPTS", 10)
-        self._lockout_seconds = getattr(settings, "LOGIN_LOCKOUT_SECONDS", 900)
+        self._max_failed = get_int("LOGIN_MAX_FAILED_ATTEMPTS", 10)
+        self._lockout_seconds = get_int("LOGIN_LOCKOUT_SECONDS", 900)
 
     #  login
 

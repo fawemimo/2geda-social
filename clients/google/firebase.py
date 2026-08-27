@@ -9,13 +9,19 @@ from accounts.services.exceptions import ValidationError
 
 logger = logging.getLogger(__name__)
 
-FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "2geda-social-app")  # Replace with your Firebase project ID
+def _firebase_project_id() -> str:
+    from config import get_str
+
+    return get_str("FIREBASE_PROJECT_ID", "2geda-social-app")
 
 
 class FireBasePushAPI:
     def __init__(self):
         self.service_account_file = "credentials.json"
-        self.url = f"https://fcm.googleapis.com/v1/projects/{FIREBASE_PROJECT_ID}/messages:send"
+        self.url = (
+            "https://fcm.googleapis.com/v1/projects/"
+            f"{_firebase_project_id()}/messages:send"
+        )
         self.credentials = service_account.Credentials.from_service_account_file(
             self.service_account_file,
             scopes=["https://www.googleapis.com/auth/firebase.messaging"],

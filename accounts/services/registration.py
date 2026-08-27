@@ -32,6 +32,7 @@ from .pending_registration import (
     PendingRegistrationStore,
 )
 from .tokens import TokenService
+from config import get_int
 
 
 logger = logging.getLogger(__name__)
@@ -97,11 +98,11 @@ class RegistrationService:
         self._hasher = hasher or DjangoOTPHasher()
         self._tokens = token_service or TokenService()
 
-        self._ttl = timedelta(seconds=getattr(settings, "OTP_TTL_SECONDS", 600))
-        self._cooldown = timedelta(seconds=getattr(settings, "OTP_RESEND_COOLDOWN_SECONDS", 60))
-        self._max_attempts = getattr(settings, "OTP_MAX_ATTEMPTS", 5)
-        self._code_length = getattr(settings, "OTP_CODE_LENGTH", 6)
-        self._daily_quota = getattr(settings, "OTP_DAILY_QUOTA", 20)
+        self._ttl = timedelta(seconds=get_int("OTP_TTL_SECONDS", 600))
+        self._cooldown = timedelta(seconds=get_int("OTP_RESEND_COOLDOWN_SECONDS", 60))
+        self._max_attempts = get_int("OTP_MAX_ATTEMPTS", 5)
+        self._code_length = get_int("OTP_CODE_LENGTH", 6)
+        self._daily_quota = get_int("OTP_DAILY_QUOTA", 20)
 
     def _primary_identifier(self, *, email: str | None, phone_number: str | None) -> str:
         if email:

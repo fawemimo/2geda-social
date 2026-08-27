@@ -8,6 +8,8 @@ from clients.email.base import EmailMessage, EmailProvider, SendResult
 from clients.email.registry import get_provider
 from clients.email.rendering import EmailRenderer
 
+from config import get_str
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_FROM_NAME = "2geda Social App"
@@ -35,7 +37,7 @@ class EmailService:
         self.template_name = template_name
         self._provider = provider
         self.renderer = renderer or EmailRenderer()
-        self.sender = sender or os.getenv("EMAIL_SENDER", "")
+        self.sender = sender or get_str("EMAIL_SENDER", "")
 
     @property
     def provider(self) -> EmailProvider:

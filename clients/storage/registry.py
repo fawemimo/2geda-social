@@ -34,9 +34,10 @@ def available_providers() -> tuple[str, ...]:
 
 
 def configured_provider_name() -> str:
+    from config import get_config
+
     raw = (
-        getattr(settings, "STORAGE_PROVIDER", None)
-        or os.getenv("STORAGE_PROVIDER")
+        get_config("STORAGE_PROVIDER")
         or getattr(settings, "STORAGE_TYPE", None)
         or os.getenv("STORAGE_TYPE")
         or "s3"

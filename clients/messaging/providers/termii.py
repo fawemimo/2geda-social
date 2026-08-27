@@ -22,7 +22,9 @@ def _resolve(explicit: str | None, name: str, default: str = "") -> str:
 
     if explicit is not None:
         return explicit
-    return os.getenv(name, default) or default
+    from config import get_config
+
+    return str(get_config(name, default) or default)
 
 DEFAULT_BASE_URL = "https://api.ng.termii.com"
 

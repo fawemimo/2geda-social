@@ -29,11 +29,9 @@ def available_providers() -> tuple[str, ...]:
 
 
 def configured_provider_name() -> str:
-    return str(
-        getattr(settings, "EMAIL_PROVIDER", None)
-        or os.getenv("EMAIL_PROVIDER")
-        or "resend"
-    ).strip().lower()
+    from config import get_config
+
+    return str(get_config("EMAIL_PROVIDER") or "resend").strip().lower()
 
 
 def get_provider(name: str | None = None) -> EmailProvider:

@@ -22,13 +22,17 @@ psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d postgres -c "SELECT 1 FROM pg_da
 }
 
 # Run migrations
-echo "Running makemigrations..."
-python manage.py makemigrations advertisements
+# echo "Running makemigrations..."
+# python manage.py makemigrations
 
 
 # Run migrations
 echo "Running migrations..."
 python manage.py migrate --noinput
+
+# Run to sync config variables
+echo "Running sync of variables to DB"
+python manage.py sync_config
 
 # Collect static files
 echo "Collecting static files..."

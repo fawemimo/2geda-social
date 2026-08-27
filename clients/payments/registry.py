@@ -31,12 +31,9 @@ def available_providers() -> tuple[str, ...]:
 
 
 def configured_provider_name() -> str:
-    raw = (
-        getattr(settings, "PAYMENT_PROVIDER", None)
-        or os.getenv("PAYMENT_PROVIDER")
-        or "paystack"
-    )
-    return str(raw).strip().lower()
+    from config import get_config
+
+    return str(get_config("PAYMENT_PROVIDER") or "paystack").strip().lower()
 
 
 def get_provider(name: str | None = None) -> PaymentProvider:

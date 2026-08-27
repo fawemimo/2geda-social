@@ -24,6 +24,7 @@ from .exceptions import (
 from .interfaces import IDistributedLock, IOTPGenerator, IOTPHasher, IRateLimiter
 from .otp_generator import DjangoOTPHasher, SecureOTPGenerator
 from .rate_limiter import RedisDistributedLock, RedisRateLimiter
+from config import get_int
 
 
 logger = logging.getLogger(__name__)
@@ -57,11 +58,11 @@ class OTPService:
         self._rate_limiter = rate_limiter or RedisRateLimiter(namespace="otp")
         self._lock = lock or RedisDistributedLock(namespace="otp")
 
-        self._length: int = getattr(settings, "OTP_CODE_LENGTH", 6)
-        self._ttl: int = getattr(settings, "OTP_TTL_SECONDS", 600)
-        self._max_attempts: int = getattr(settings, "OTP_MAX_ATTEMPTS", 5)
-        self._cooldown: int = getattr(settings, "OTP_RESEND_COOLDOWN_SECONDS", 60)
-        self._daily_quota: int = getattr(settings, "OTP_DAILY_QUOTA", 20)
+        self._length: int = get_int("OTP_CODE_LENGTH", 6)
+        self._ttl: int = get_int("OTP_TTL_SECONDS", 600)
+        self._max_attempts: int = get_int("OTP_MAX_ATTEMPTS", 5)
+        self._cooldown: int = get_int("OTP_RESEND_COOLDOWN_SECONDS", 60)
+        self._daily_quota: int = get_int("OTP_DAILY_QUOTA", 20)
 
     # public API 
 

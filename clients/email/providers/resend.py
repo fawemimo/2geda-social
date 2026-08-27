@@ -12,6 +12,8 @@ from clients.email.base import (
     SendResult,
 )
 
+from config import get_config
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_API_URL = "https://api.resend.com/emails"
@@ -31,11 +33,11 @@ class ResendProvider(EmailProvider):
         api_url: str | None = None,
         timeout: int | None = None,
     ) -> None:
-        self.api_key = api_key or os.getenv("RESEND_API_KEY", "")
+        self.api_key = api_key or get_config("RESEND_API_KEY", "")
         self.api_url = (
-            api_url or os.getenv("RESEND_EMAIL_URL") or DEFAULT_API_URL
+            api_url or get_config("RESEND_EMAIL_URL") or DEFAULT_API_URL
         )
-        self.timeout = timeout or int(os.getenv("RESEND_TIMEOUT", "15"))
+        self.timeout = timeout or int(get_config("RESEND_TIMEOUT", 15))
 
     def send(self, message: EmailMessage) -> SendResult:
         payload: dict[str, object] = {

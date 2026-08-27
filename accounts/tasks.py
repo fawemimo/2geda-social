@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from accounts.services.interfaces import NotificationPayload
 from accounts.services.notifications import EmailNotificationSender
+from config import get_int
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ def send_otp_email(*, to: str, code: str, purpose: str, username: str = "") -> N
                 "username": username,
                 "purpose": purpose,
                 "expires_in_minutes": max(
-                    1, getattr(settings, "OTP_TTL_SECONDS", 600) // 60
+                    1, get_int("OTP_TTL_SECONDS", 600) // 60
                 ),
             },
         )
@@ -452,7 +453,7 @@ def hash_pending_password(*, identifier: str, raw_password: str) -> None:
     )
     remaining_ttl = (
         pending.issued_at
-        + timedelta(seconds=getattr(settings, "OTP_TTL_SECONDS", 600))
+        + timedelta(seconds=get_int("OTP_TTL_SECONDS", 600))
         - timezone.now()
     )
     if remaining_ttl > timedelta(0):

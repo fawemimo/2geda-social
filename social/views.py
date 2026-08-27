@@ -126,7 +126,9 @@ class PostViewSet(viewsets.ModelViewSet):
         delete_post_cache(str(instance.pk))
         return APIResponse.success(
             message="Post updated successfully.",
-            data=PostListSerializer(post, context={"request": request}).data,
+            data={
+                "id":post.id
+            }
         )
 
     def partial_update(self, request, *args, **kwargs):

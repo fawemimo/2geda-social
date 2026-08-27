@@ -10,6 +10,8 @@ from clients.email.base import (
     SendResult,
 )
 
+from config import get_config
+
 logger = logging.getLogger(__name__)
 
 # Permanent SES failures — retrying these will never succeed.
@@ -36,10 +38,10 @@ class SESProvider(EmailProvider):
         client=None,
     ) -> None:
         self._client = client
-        self._region = region or os.getenv("AWS_S3_REGION_NAME")
-        self._access_key_id = access_key_id or os.getenv("AWS_ACCESS_KEY_ID_SES")
+        self._region = region or get_config("AWS_S3_REGION_NAME")
+        self._access_key_id = access_key_id or get_config("AWS_ACCESS_KEY_ID_SES")
         self._secret_access_key = (
-            secret_access_key or os.getenv("AWS_SECRET_ACCESS_KEY_SES")
+            secret_access_key or get_config("AWS_SECRET_ACCESS_KEY_SES")
         )
 
     @property

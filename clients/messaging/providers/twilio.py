@@ -22,7 +22,9 @@ def _resolve(explicit: str | None, name: str, default: str = "") -> str:
 
     if explicit is not None:
         return explicit
-    return os.getenv(name, default) or default
+    from config import get_config
+
+    return str(get_config(name, default) or default)
 
 API_ROOT = "https://api.twilio.com/2010-04-01"
 _PERMANENT_CODES = frozenset({21211, 21214, 21606, 21610, 21612, 21614, 63003})

@@ -18,7 +18,9 @@ logger = logging.getLogger(__name__)
 
 
 def _setting(name: str, default: str | None = None) -> str | None:
-    return getattr(settings, name, None) or os.getenv(name, default)
+    from config import get_config
+
+    return get_config(name, default)
 
 
 def _resolve(explicit: str | None, setting_name: str, default: str = "") -> str:

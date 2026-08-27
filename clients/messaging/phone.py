@@ -4,7 +4,11 @@ import os
 import re
 
 #: Country calling code assumed for national-format numbers (Nigeria).
-DEFAULT_COUNTRY_CODE = os.getenv("DEFAULT_PHONE_COUNTRY_CODE", "234").lstrip("+")
+def _default_country_code() -> str:
+    """Read per call so an admin change takes effect without a restart."""
+    from config import get_str
+
+    return str(get_str("DEFAULT_PHONE_COUNTRY_CODE", "234")).lstrip("+") or "234"
 
 # E.164 allows at most 15 digits.
 _MAX_DIGITS = 15
@@ -29,7 +33,7 @@ def normalize(phone: str, *, country_code: str | None = None) -> str:
     if not digits:
         raise InvalidPhoneNumber(f"No digits in phone number: {phone!r}")
 
-    cc = (country_code or DEFAULT_COUNTRY_CODE).lstrip("+")
+    cc = (country_code or _default_country_code()).lstrip("+")
 
     if explicit_intl:
         # "00234..." is the international prefix form of "+234...".

@@ -46,7 +46,10 @@ _EVENT_MAP = {
 
 
 def _setting(name: str, default: str = "") -> str:
-    return getattr(settings, name, None) or os.getenv(name, default) or ""
+    from config import get_config
+
+    value = get_config(name, default)
+    return "" if value is None else str(value)
 
 
 def _resolve(explicit: str | None, name: str, default: str = "") -> str:
