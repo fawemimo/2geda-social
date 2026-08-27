@@ -7,7 +7,12 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, IsAuthenticatedOrReadOnly
 from rest_framework.views import APIView
 
-from accounts.services.exceptions import ConflictError, NotFoundError, ServiceError, ValidationError
+from accounts.services.exceptions import (
+    ConflictError,
+    NotFoundError,
+    ServiceError,
+    ValidationError,
+)
 from social.cache import (
     delete_post_cache,
     get_cached,
@@ -24,14 +29,19 @@ from social.serializers import (
     CommentCreateSerializer,
     CommentSerializer,
     CommentUpdateSerializer,
-    FollowResponseSerializer,
     PostCreateSerializer,
     PostListSerializer,
     PostUpdateSerializer,
     ReshareCreateSerializer,
     ReshareSerializer,
 )
-from social.services import CommentService, FollowService, LikeService, PostService, ReshareService
+from social.services import (
+    CommentService,
+    FollowService,
+    LikeService,
+    PostService,
+    ReshareService,
+)
 from utils.enum import PostVisibility
 from utils.pagination import CursorStandardPagination, StandardPagination
 from utils.responses import APIResponse
@@ -46,9 +56,15 @@ class PostViewSet(viewsets.ModelViewSet):
     pagination_message = "Posts fetched successfully."
 
     def get_queryset(self):
-        qs = Post.objects.filter(is_deleted=False).select_related(
-            "author", "reshare_of",
-        ).prefetch_related("attachments__media").order_by("-created_at")
+        qs = (
+            Post.objects.filter(is_deleted=False)
+            .select_related(
+                "author",
+                "reshare_of",
+            )
+            .prefetch_related("attachments__media")
+            .order_by("-created_at")
+        )
         if self.request and self.request.user.is_authenticated:
             user = self.request.user
             post_ct = ContentType.objects.get_for_model(Post)
@@ -75,12 +91,12 @@ class PostViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        post = PostService.create(author=request.user, validated_data=serializer.validated_data)
+        post = PostService.create(
+            author=request.user, validated_data=serializer.validated_data
+        )
         return APIResponse.success(
             message="Post created successfully.",
-            data={
-                "id": post.id
-            },
+            data={"id": post.id},
             status_code=status.HTTP_201_CREATED,
         )
 
@@ -88,7 +104,9 @@ class PostViewSet(viewsets.ModelViewSet):
         user_id = str(getattr(request.user, "pk", "anon") or "anon")
         cursor = request.query_params.get(self.paginator.cursor_query_param, "") or ""
         page_size = int(
-            request.query_params.get(self.paginator.page_size_query_param, self.paginator.page_size)
+            request.query_params.get(
+                self.paginator.page_size_query_param, self.paginator.page_size
+            )
         )
         cache_key = make_post_feed_cache_key(cursor, page_size, user_id)
         cached = get_cached(cache_key)
@@ -119,16 +137,17 @@ class PostViewSet(viewsets.ModelViewSet):
         partial = kwargs.pop("partial", False)
         instance = self.get_object()
         if instance.author != request.user:
-            return APIResponse.error(message="You can only edit your own posts.", status_code=403)
+            return APIResponse.error(
+                message="You can only edit your own posts.", status_code=403
+            )
         serializer = self.get_serializer(data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
-        post = PostService.update(instance=instance, validated_data=serializer.validated_data)
+        post = PostService.update(
+            instance=instance, validated_data=serializer.validated_data
+        )
         delete_post_cache(str(instance.pk))
         return APIResponse.success(
-            message="Post updated successfully.",
-            data={
-                "id":post.id
-            }
+            message="Post updated successfully.", data={"id": post.id}
         )
 
     def partial_update(self, request, *args, **kwargs):
@@ -138,10 +157,14 @@ class PostViewSet(viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         if instance.author != request.user:
-            return APIResponse.error(message="You can only delete your own posts.", status_code=403)
+            return APIResponse.error(
+                message="You can only delete your own posts.", status_code=403
+            )
         PostService.delete(instance=instance)
         delete_post_cache(str(instance.pk))
-        return APIResponse.success(message="Post deleted successfully.", status_code=200)
+        return APIResponse.success(
+            message="Post deleted successfully.", status_code=200
+        )
 
     @action(detail=True, methods=["post"])
     def like(self, request, pk=None):
@@ -168,12 +191,14 @@ class PostViewSet(viewsets.ModelViewSet):
         cached = get_cached(cache_key)
         if cached is not None:
             return APIResponse.success(data=cached)
-        queryset = self.get_queryset().filter(visibility=PostVisibility.PUBLIC.value)[:10]
+        queryset = self.get_queryset().filter(visibility=PostVisibility.PUBLIC.value)[
+            :10
+        ]
         serializer = self.get_serializer(queryset, many=True)
         response = APIResponse.success(data=serializer.data)
         set_cached(cache_key, response.data, ttl=CACHE_POST_TRENDING_TTL)
         return response
-    
+
 
 class CommentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticatedOrReadOnly]
@@ -207,7 +232,7 @@ class CommentViewSet(viewsets.ModelViewSet):
             return APIResponse.error(message=exc.message, status_code=exc.status_code)
         return APIResponse.success(
             message="Comment created successfully.",
-            data=CommentSerializer(comment, context={"request": request}).data,
+            data={"id": comment.id},
             status_code=status.HTTP_201_CREATED,
         )
 
@@ -225,13 +250,16 @@ class CommentViewSet(viewsets.ModelViewSet):
         partial = kwargs.pop("partial", False)
         instance = self.get_object()
         if instance.author != request.user:
-            return APIResponse.error(message="You can only edit your own comments.", status_code=403)
+            return APIResponse.error(
+                message="You can only edit your own comments.", status_code=403
+            )
         serializer = self.get_serializer(data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
-        comment = CommentService.update(instance=instance, body=serializer.validated_data["body"])
+        comment = CommentService.update(
+            instance=instance, body=serializer.validated_data["body"]
+        )
         return APIResponse.success(
-            message="Comment updated successfully.",
-            data=CommentSerializer(comment, context={"request": request}).data,
+            message="Comment updated successfully.", data={"id": comment.id}
         )
 
     def partial_update(self, request, *args, **kwargs):
@@ -241,7 +269,9 @@ class CommentViewSet(viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         if instance.author != request.user:
-            return APIResponse.error(message="You can only delete your own comments.", status_code=403)
+            return APIResponse.error(
+                message="You can only delete your own comments.", status_code=403
+            )
         CommentService.delete(instance=instance)
         return APIResponse.success(message="Comment deleted successfully.")
 
@@ -265,11 +295,15 @@ class ReplyViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = CommentSerializer
 
     def get_queryset(self):
-        return Comment.objects.filter(
-            parent_id=self.kwargs["comment_id"],
-            post_id=self.kwargs["post_id"],
-            is_deleted=False,
-        ).select_related("author").order_by("created_at")
+        return (
+            Comment.objects.filter(
+                parent_id=self.kwargs["comment_id"],
+                post_id=self.kwargs["post_id"],
+                is_deleted=False,
+            )
+            .select_related("author")
+            .order_by("created_at")
+        )
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -281,9 +315,13 @@ class ReshareViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticatedOrReadOnly]
 
     def get_queryset(self):
-        return Reshare.objects.filter(
-            original_post__is_deleted=False,
-        ).select_related("user", "original_post", "reshare_post").order_by("-created_at")
+        return (
+            Reshare.objects.filter(
+                original_post__is_deleted=False,
+            )
+            .select_related("user", "original_post", "reshare_post")
+            .order_by("-created_at")
+        )
 
     def get_serializer_class(self):
         if self.action == "create":
@@ -294,12 +332,14 @@ class ReshareViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
-            reshare = ReshareService.create(user=request.user, validated_data=serializer.validated_data)
+            reshare = ReshareService.create(
+                user=request.user, validated_data=serializer.validated_data
+            )
         except ServiceError as exc:
             return APIResponse.error(message=exc.message, status_code=exc.status_code)
         return APIResponse.success(
             message="Post reshared successfully.",
-            data=ReshareSerializer(reshare, context={"request": request}).data,
+            data={"id": reshare.id},
             status_code=status.HTTP_201_CREATED,
         )
 
@@ -320,7 +360,9 @@ class ReshareViewSet(viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         if instance.user != request.user:
-            return APIResponse.error(message="You can only delete your own reshares.", status_code=403)
+            return APIResponse.error(
+                message="You can only delete your own reshares.", status_code=403
+            )
         ReshareService.delete(instance=instance)
         return APIResponse.success(message="Reshare deleted successfully.")
 
@@ -332,11 +374,15 @@ class UserPostViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user_id = self.kwargs.get("user_id")
-        qs = Post.objects.filter(
-            author_id=user_id, is_deleted=False
-        ).select_related(
-            "author", "reshare_of",
-        ).prefetch_related("attachments__media").order_by("-created_at")
+        qs = (
+            Post.objects.filter(author_id=user_id, is_deleted=False)
+            .select_related(
+                "author",
+                "reshare_of",
+            )
+            .prefetch_related("attachments__media")
+            .order_by("-created_at")
+        )
 
         media_type = self.request.query_params.get("media_type")
         if media_type:
@@ -364,12 +410,11 @@ class FollowUserView(APIView):
 
     def post(self, request, user_id):
         try:
-            follow = FollowService.follow(follower=request.user, following_id=user_id)
+            FollowService.follow(follower=request.user, following_id=user_id)
         except (ValidationError, NotFoundError, ConflictError) as exc:
             return APIResponse.error(message=exc.message, status_code=exc.status_code)
         return APIResponse.success(
             message="Followed successfully.",
-            data=FollowResponseSerializer(follow).data,
             status_code=status.HTTP_201_CREATED,
         )
 

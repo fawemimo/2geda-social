@@ -3,6 +3,7 @@ from django.db import transaction
 from accounts.models import User
 from social.event_broadcaster import broadcast_post_event
 from social.models import Post, Reshare
+from social.services.location import SocialLocationService
 from social.tasks import broadcast_post_to_followers, notify_followers, process_post_media
 from utils.enum import NotificationType
 
@@ -19,9 +20,11 @@ class PostService:
         reshare_of_id = validated_data.get("reshare_of")
         reshare_comment = validated_data.get("reshare_comment", "")
         media_ids = validated_data.get("media_ids", [])
-        location_label = validated_data.get("location_label", "")
-        latitude = validated_data.get("latitude")
-        longitude = validated_data.get("longitude")
+        location = SocialLocationService.capture(
+            latitude=validated_data.get("latitude"),
+            longitude=validated_data.get("longitude"),
+            label=validated_data.get("location_label", ""),
+        )
 
         post = Post.objects.create(
             author=author,
@@ -29,9 +32,7 @@ class PostService:
             visibility=visibility,
             reshare_of_id=reshare_of_id,
             reshare_comment=reshare_comment,
-            location_label=location_label,
-            latitude=latitude,
-            longitude=longitude
+            location=location,
         )
 
         if media_ids:
@@ -77,18 +78,23 @@ class PostService:
     @staticmethod
     @transaction.atomic
     def update(*, instance: Post, validated_data: dict) -> Post:
-        for field in ("body", "visibility", "reshare_comment", "location_label", "latitude", "longitude"):
+        for field in ("body", "visibility", "reshare_comment"):
             if field in validated_data:
                 setattr(instance, field, validated_data[field])
+
+        # Re-tag only when the caller sends new coordinates.
+        if validated_data.get("latitude") is not None:
+            instance.location = SocialLocationService.capture(
+                latitude=validated_data.get("latitude"),
+                longitude=validated_data.get("longitude"),
+                label=validated_data.get("location_label", ""),
+            )
 
         media_ids = validated_data.get("media_ids")
         if media_ids is not None:
             old_ids = {str(pk) for pk in instance.attachments.values_list("media_id", flat=True)}
             new_ids = [str(m) for m in media_ids]
-            if set(new_ids) != old_ids:
-                # Detach only. The Media rows are user-owned assets that may be
-                # attached to other posts, so editing a post must not delete the
-                # underlying objects from storage.
+            if set(new_ids) != old_ids:                
                 instance.attachments.all().delete()
                 transaction.on_commit(
                     lambda: process_post_media.delay(str(instance.id), new_ids)

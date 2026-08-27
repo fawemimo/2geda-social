@@ -9,6 +9,7 @@ from social.models import Post, Reshare
 from social.tasks import notify_followers
 from utils.enum import NotificationPriority, NotificationType
 from notifications.services.notification_services import NotificationService as NotificationCreator
+from social.services.location import SocialLocationService
 logger = logging.getLogger(__name__)
 
 
@@ -28,6 +29,11 @@ class ReshareService:
             raise ConflictError("You have already reshared this post.")
 
         reshare_comment = validated_data.get("reshare_comment", "")
+        location = SocialLocationService.capture(
+            latitude=validated_data.get("latitude"),
+            longitude=validated_data.get("longitude"),
+            label=validated_data.get("location_label", ""),
+        )
         reshare_post = Post.objects.create(
             author=user,
             body=reshare_comment,
@@ -40,6 +46,7 @@ class ReshareService:
             user=user,
             original_post=original_post,
             reshare_post=reshare_post,
+            location=location,
         )
 
         original_post.refresh_from_db()

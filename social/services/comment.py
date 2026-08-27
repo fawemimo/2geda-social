@@ -9,6 +9,7 @@ from social.models import Comment, Post
 from social.tasks import notify_followers
 from utils.enum import NotificationPriority, NotificationType
 from notifications.services.notification_services import NotificationService as NotificationCreator
+from social.services.location import SocialLocationService
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,7 @@ class CommentService:
         parent_id = validated_data.get("parent_id")
         if parent_id:
             try:
-                parent = Comment.objects.get(pk=parent_id, post=post, is_deleted=False, parent__isnull=True)
+                Comment.objects.get(pk=parent_id, post=post, is_deleted=False, parent__isnull=True)
             except Comment.DoesNotExist:
                 raise ValidationError("Parent comment not found or is a reply.")
 
@@ -35,6 +36,11 @@ class CommentService:
             author=author,
             parent_id=parent_id,
             body=validated_data["body"],
+            location=SocialLocationService.capture(
+                latitude=validated_data.get("latitude"),
+                longitude=validated_data.get("longitude"),
+                label=validated_data.get("location_label", ""),
+            ),
         )
 
         post.refresh_from_db()

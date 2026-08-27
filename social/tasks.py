@@ -9,6 +9,48 @@ logger = logging.getLogger(__name__)
 
 
 @shared_task(
+    name="social.tasks.resolve_social_location",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=3,
+    acks_late=True,
+)
+def resolve_social_location(location_id: str) -> dict:
+    from social.models import SocialLocation
+    from social.services.location import SocialLocationService
+    from utils.enum import LocationStatus
+
+    location = SocialLocation.objects.filter(pk=location_id).first()
+    if location is None:
+        return {"resolved": False, "reason": "missing"}
+    if location.status == LocationStatus.RESOLVED.value:
+        return {"resolved": True, "reason": "already_resolved"}
+
+    # Redis or a sibling row at the same cell means no Google call at all.
+    if SocialLocationService.apply_known_address(location):
+        return {"resolved": True, "reason": "cache"}
+
+    from clients.google.location_address import GoogleLocation
+
+    try:
+        address = GoogleLocation().get_address(
+            latitude=float(location.latitude), longitude=float(location.longitude),
+        )
+    except ValueError:
+        # No API key configured; leave it pending rather than burning retries.
+        logger.warning("Google Maps key missing; location %s left pending", location_id)
+        return {"resolved": False, "reason": "not_configured"}
+
+    if not address:
+        SocialLocationService.mark_failed(location)
+        return {"resolved": False, "reason": "no_result"}
+
+    SocialLocationService.cache_address(location.cell_key, address)
+    SocialLocationService.apply_address(location, address)
+    return {"resolved": True, "reason": "geocoded"}
+
+
+@shared_task(
     name="social.tasks.process_post_media",
     autoretry_for=(Exception,),
     retry_backoff=True,

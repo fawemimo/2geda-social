@@ -6,10 +6,56 @@ from django.contrib.postgres.search import SearchVectorField
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 
-from utils.enum import NotificationType, PostVisibility
+from decimal import Decimal
+
+from utils.enum import LocationStatus, NotificationType, PostVisibility
 from utils.models import BaseModel, TimestampMixin, UUIDPrimaryKeyMixin
 from accounts.models import User
 from medias.models import Media
+
+# Central location snapshot shared by every social object.
+
+class SocialLocation(UUIDPrimaryKeyMixin, TimestampMixin):
+    latitude = models.DecimalField(max_digits=9, decimal_places=6)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6)
+    # Coordinates rounded to ~11m, used to reuse an already geocoded place.
+    cell_key = models.CharField(max_length=32, db_index=True)
+    # User-typed caption for the spot, e.g. "Eko Hotel".
+    label = models.CharField(max_length=120, blank=True)
+
+    formatted_address = models.CharField(max_length=255, blank=True)
+    city = models.CharField(max_length=100, blank=True)
+    state = models.CharField(max_length=100, blank=True)
+    country = models.CharField(max_length=100, blank=True)
+
+    status = models.CharField(
+        max_length=10,
+        choices=LocationStatus.choices(),
+        default=LocationStatus.PENDING.value,
+        db_index=True,
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "social_location"
+        ordering = ["-created_at"]
+        indexes = [
+            # Finds an already resolved place at the same coordinates.
+            models.Index(fields=["cell_key", "status"], name="social_loc_cell_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return self.formatted_address or self.label or self.cell_key
+
+    # Rounds coordinates into a reuse key; 4dp is roughly an 11 metre cell.
+    @staticmethod
+    def build_cell_key(latitude, longitude) -> str:
+        return f"{Decimal(str(latitude)):.4f},{Decimal(str(longitude)):.4f}"
+
+    @property
+    def is_resolved(self) -> bool:
+        return self.status == LocationStatus.RESOLVED.value
+
 
 # The core content unit.
 
@@ -49,9 +95,14 @@ class Post(BaseModel):
     reshares_count = models.PositiveIntegerField(default=0)
 
     # ---- Location snapshot (optional) ----
-    location_label = models.CharField(max_length=120, blank=True)
-    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
-    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    # Shared snapshot; resolved to an address by a Celery task.
+    location = models.ForeignKey(
+        "social.SocialLocation",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="%(class)s_set",
+    )
 
     # ---- Search ----
     search_vector = SearchVectorField(null=True, blank=True)
@@ -110,6 +161,15 @@ class Like(UUIDPrimaryKeyMixin, TimestampMixin):
     object_id = models.UUIDField(db_index=True)
     content_object = GenericForeignKey("content_type", "object_id")
 
+    # Shared snapshot; resolved to an address by a Celery task.
+    location = models.ForeignKey(
+        "social.SocialLocation",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="like_set",
+    )
+
     class Meta:
         db_table = "social_like"
         verbose_name = _("like")
@@ -161,6 +221,16 @@ class Comment(BaseModel):
     # GenericRelation for cascade
     likes = GenericRelation(Like, related_query_name="comment")
 
+    # ---- Location snapshot (optional) ----
+    # Shared snapshot; resolved to an address by a Celery task.
+    location = models.ForeignKey(
+        "social.SocialLocation",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="%(class)s_set",
+    )
+
     class Meta:
         db_table = "social_comment"
         verbose_name = _("comment")
@@ -204,6 +274,15 @@ class Reshare(UUIDPrimaryKeyMixin, TimestampMixin):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="as_reshare",
+    )
+# ---- Location snapshot (optional) ----
+    # Shared snapshot; resolved to an address by a Celery task.
+    location = models.ForeignKey(
+        "social.SocialLocation",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="%(class)s_set",
     )
 
     class Meta:

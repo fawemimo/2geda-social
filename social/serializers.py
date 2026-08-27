@@ -4,7 +4,7 @@ from rest_framework import serializers
 
 from accounts.models import Follow, User
 from accounts.serializers import UserMeSerializer
-from social.models import Comment, Like, Post, PostMedia, Reshare
+from social.models import Comment, Like, Post, PostMedia, Reshare, SocialLocation
 from utils.enum import PostVisibility
 
 
@@ -40,11 +40,42 @@ class UserSocialSerializer(serializers.ModelSerializer):
         read_only_fields = fields
         
 
+# Read shape for the shared location snapshot.
+
+class SocialLocationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SocialLocation
+        fields = [
+            "id", "latitude", "longitude", "label",
+            "formatted_address", "city", "state", "country", "status",
+        ]
+        read_only_fields = fields
+
+
+# Coordinates any social object may be tagged with.
+
+class LocationInputMixin(serializers.Serializer):
+    location_label = serializers.CharField(max_length=120, required=False, allow_blank=True)
+    latitude = serializers.DecimalField(max_digits=9, decimal_places=6, required=False, allow_null=True)
+    longitude = serializers.DecimalField(max_digits=9, decimal_places=6, required=False, allow_null=True)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        lat, lng = attrs.get("latitude"), attrs.get("longitude")
+        # One without the other cannot be geocoded.
+        if (lat is None) != (lng is None):
+            raise serializers.ValidationError(
+                {"latitude": "Send latitude and longitude together, or neither."}
+            )
+        return attrs
+
+
 class PostListSerializer(serializers.ModelSerializer):
     author = UserSocialSerializer(read_only=True)
     attachments = PostMediaSerializer(many=True, read_only=True)
     is_liked = serializers.BooleanField(read_only=True)
     reshare_of_detail = serializers.SerializerMethodField()
+    location = SocialLocationSerializer(read_only=True)
 
     class Meta:
         model = Post
@@ -53,7 +84,7 @@ class PostListSerializer(serializers.ModelSerializer):
             "attachments", "is_liked",
             "reshare_of", "reshare_of_detail", "reshare_comment",
             "likes_count", "comments_count", "reshares_count",
-            "location_label", "created_at", "updated_at",
+            "location", "created_at", "updated_at",
         ]
 
     def get_reshare_of_detail(self, obj):
@@ -62,13 +93,7 @@ class PostListSerializer(serializers.ModelSerializer):
         return None
 
 
-class MediaIdsValidationMixin:
-    """Rejects media ids the requester may not attach.
-
-    The worker re-checks ownership before linking, but validating here turns a
-    bad request into a 400 the client can act on instead of media that silently
-    never appears on the post.
-    """
+class MediaIdsValidationMixin:    
 
     MAX_MEDIA_PER_POST = 10
 
@@ -106,7 +131,7 @@ class MediaIdsValidationMixin:
         return value
 
 
-class PostCreateSerializer(MediaIdsValidationMixin, serializers.Serializer):
+class PostCreateSerializer(MediaIdsValidationMixin, LocationInputMixin):
     body = serializers.CharField(max_length=2000, required=False, allow_blank=True)
     visibility = serializers.ChoiceField(
         choices=PostVisibility.choices(),
@@ -128,13 +153,10 @@ class PostCreateSerializer(MediaIdsValidationMixin, serializers.Serializer):
         return value
 
 
-class PostUpdateSerializer(MediaIdsValidationMixin, serializers.Serializer):
+class PostUpdateSerializer(MediaIdsValidationMixin, LocationInputMixin):
     body = serializers.CharField(max_length=2000, required=False, allow_blank=True)
     visibility = serializers.ChoiceField(choices=PostVisibility.choices(), required=False)
     media_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
-    location_label = serializers.CharField(max_length=120, required=False, allow_blank=True)
-    latitude = serializers.DecimalField(max_digits=9, decimal_places=6, required=False, allow_null=True)
-    longitude = serializers.DecimalField(max_digits=9, decimal_places=6, required=False, allow_null=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -146,13 +168,14 @@ class CommentSerializer(serializers.ModelSerializer):
     author = UserSocialSerializer(read_only=True)
     is_liked = serializers.SerializerMethodField()
     replies = serializers.SerializerMethodField()
+    location = SocialLocationSerializer(read_only=True)
 
     class Meta:
         model = Comment
         fields = [
             "id", "post", "author", "parent", "body",
             "likes_count", "replies_count",
-            "is_liked", "replies",
+            "is_liked", "replies", "location",
             "created_at", "updated_at",
         ]
 
@@ -169,7 +192,7 @@ class CommentSerializer(serializers.ModelSerializer):
         return CommentSerializer(replies, many=True, context=self.context).data
 
 
-class CommentCreateSerializer(serializers.Serializer):
+class CommentCreateSerializer(LocationInputMixin):
     body = serializers.CharField(max_length=1000)
     parent_id = serializers.UUIDField(required=False, allow_null=True)
 
@@ -187,16 +210,17 @@ class ReshareSerializer(serializers.ModelSerializer):
     user = UserSocialSerializer(read_only=True)
     original_post = PostListSerializer(read_only=True)
     reshare_post = PostListSerializer(read_only=True)
+    location = SocialLocationSerializer(read_only=True)
 
     class Meta:
         model = Reshare
         fields = [
-            "id", "user", "original_post", "reshare_post",
+            "id", "user", "original_post", "reshare_post", "location",
             "created_at",
         ]
 
 
-class ReshareCreateSerializer(serializers.Serializer):
+class ReshareCreateSerializer(LocationInputMixin):
     original_post_id = serializers.UUIDField()
     reshare_comment = serializers.CharField(max_length=500, required=False, allow_blank=True)
 
