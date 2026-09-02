@@ -1,0 +1,1820 @@
+{
+  "info": {
+    "_postman_id": "df5cbc75-1940-47ff-bf6b-6f140fa3f92b",
+    "name": "2geda Social \u2014 WebSockets",
+    "description": "Every WebSocket endpoint in the 2geda Social API.\n\n**Endpoints**\n| Path | Purpose |\n| --- | --- |\n| `/ws/chat/` | Direct and group chat, presence, WebRTC calls |\n| `/ws/notifications/` | Live notification stream |\n| `/ws/polls/{poll_id}/` | Live poll voting and results |\n| `/ws/posts/{post_id}/` | Live comments, likes and typing on one post |\n| `/ws/feed/` | Live feed of new posts from people you follow |\n\n**Authentication**\n\nEvery socket authenticates with a JWT access token in the query string: `?token=<access>`. There is no header auth \u2014 browsers cannot set headers on a WebSocket handshake. An invalid or missing token closes the connection immediately.\n\n**Getting a token**\n\n`POST {{http_base}}/api/v2/accounts/auth/login/` and copy `data.access` into the `jwt` collection variable.\n\n**How to use this collection**\n\nEach request is a WebSocket connection pre-filled with one message. Click **Connect**, then **Send**. The socket stays open, so you can switch between requests in a folder and keep sending on the same connection.\n\n**Envelope**\n\nClient frames are JSON with a `type` field. Requests that expect a reply take an optional `request_id`, echoed back on the matching `response` frame so you can correlate them.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Chat \u2014 /ws/chat/",
+      "description": "Direct and group messaging, presence, search and WebRTC signalling. On connect you are auto-subscribed to every conversation you belong to.",
+      "item": [
+        {
+          "name": "Connection & conversations",
+          "description": "Opening the socket and managing conversations.",
+          "item": [
+            {
+              "name": "Connect (no message)",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Open the socket. On success the server pushes the connection frame with your conversation ids and who is online.\n\n**Server replies with:** `connected`"
+              },
+              "response": []
+            },
+            {
+              "name": "list_conversations",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "List every conversation you belong to.\n\n**Server replies with:** `response`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"list_conversations\",\n  \"request_id\": \"{{$guid}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "create_direct_conversation",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Open (or reuse) a one-to-one conversation with another user.\n\n**Server replies with:** `response`, `conversation_added`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"create_direct_conversation\",\n  \"request_id\": \"{{$guid}}\",\n  \"recipient_id\": \"{{peer_user_id}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "create_group_conversation",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Create a group conversation and add the initial members.\n\n**Server replies with:** `response`, `conversation_added`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"create_group_conversation\",\n  \"request_id\": \"{{$guid}}\",\n  \"name\": \"Weekend Crew\",\n  \"description\": \"Planning the trip\",\n  \"member_ids\": [\n    \"{{peer_user_id}}\"\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "conversation.join",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Subscribe this socket to a conversation you were added to after connecting.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"conversation.join\",\n  \"conversation_id\": \"{{conversation_id}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "mark_read",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Mark every message in the conversation as read.\n\n**Server replies with:** `response`, `read_receipt`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"mark_read\",\n  \"request_id\": \"{{$guid}}\",\n  \"conversation_id\": \"{{conversation_id}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Messaging",
+          "description": "Sending, reading and deleting messages, plus typing indicators.",
+          "item": [
+            {
+              "name": "get_messages",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Fetch a page of history. Pass `before` (an ISO timestamp or message id) to page backwards.\n\n**Server replies with:** `response`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"get_messages\",\n  \"request_id\": \"{{$guid}}\",\n  \"conversation_id\": \"{{conversation_id}}\",\n  \"limit\": 50,\n  \"before\": null\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "send_message",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Send a text message. Set `reply_to_id` to quote an existing message.\n\n**Server replies with:** `response`, `message`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"send_message\",\n  \"request_id\": \"{{$guid}}\",\n  \"conversation_id\": \"{{conversation_id}}\",\n  \"body\": \"Hey, are you free for a call?\",\n  \"reply_to_id\": null\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "delete_message",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Delete one of your own messages.\n\n**Server replies with:** `response`, `message_deleted`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"delete_message\",\n  \"request_id\": \"{{$guid}}\",\n  \"message_id\": \"{{message_id}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "typing.start",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Tell the other members you are typing.\n\n**Server replies with:** `typing_indicator`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"typing.start\",\n  \"conversation_id\": \"{{conversation_id}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "typing.stop",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Clear your typing indicator.\n\n**Server replies with:** `typing_indicator`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"typing.stop\",\n  \"conversation_id\": \"{{conversation_id}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Groups",
+          "description": "Membership, admin and join-request handling.",
+          "item": [
+            {
+              "name": "add_group_members",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Add one or more people to a group.\n\n**Server replies with:** `response`, `group_members_updated`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"add_group_members\",\n  \"request_id\": \"{{$guid}}\",\n  \"conversation_id\": \"{{conversation_id}}\",\n  \"member_ids\": [\n    \"{{peer_user_id}}\"\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "remove_group_member",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Remove a member from a group. Admins only.\n\n**Server replies with:** `response`, `member_removed`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"remove_group_member\",\n  \"request_id\": \"{{$guid}}\",\n  \"conversation_id\": \"{{conversation_id}}\",\n  \"user_id\": \"{{peer_user_id}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "promote_group_admin",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Promote a member to group admin.\n\n**Server replies with:** `response`, `member_promoted`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"promote_group_admin\",\n  \"request_id\": \"{{$guid}}\",\n  \"conversation_id\": \"{{conversation_id}}\",\n  \"user_id\": \"{{peer_user_id}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "toggle_group_lock",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Lock or unlock the group so only admins can post.\n\n**Server replies with:** `response`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"toggle_group_lock\",\n  \"request_id\": \"{{$guid}}\",\n  \"conversation_id\": \"{{conversation_id}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "request_group_join",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Ask to join a group you are not a member of.\n\n**Server replies with:** `response`, `join_request_created`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"request_group_join\",\n  \"request_id\": \"{{$guid}}\",\n  \"conversation_id\": \"{{conversation_id}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "list_join_requests",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "List pending join requests. Admins only.\n\n**Server replies with:** `response`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"list_join_requests\",\n  \"request_id\": \"{{$guid}}\",\n  \"conversation_id\": \"{{conversation_id}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "process_join_request",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Approve or reject a join request. `action` is `approve` or `reject`.\n\n**Server replies with:** `response`, `group_members_updated`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"process_join_request\",\n  \"request_id\": \"{{$guid}}\",\n  \"conversation_id\": \"{{conversation_id}}\",\n  \"join_request_id\": \"{{join_request_id}}\",\n  \"action\": \"approve\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Search & presence",
+          "description": "Server-side search and online status.",
+          "item": [
+            {
+              "name": "search_messages",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Full-text search messages. Omit `conversation_id` to search everywhere you have access.\n\n**Server replies with:** `response`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"search_messages\",\n  \"q\": \"call\",\n  \"conversation_id\": \"{{conversation_id}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "search_conversations",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Search your conversations by name.\n\n**Server replies with:** `response`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"search_conversations\",\n  \"q\": \"weekend\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "search_users",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Search users you can start a conversation with.\n\n**Server replies with:** `response`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"search_users\",\n  \"q\": \"ada\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "search_media",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Search shared media. `media_type` is image, video, audio or document.\n\n**Server replies with:** `response`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"search_media\",\n  \"q\": \"invoice\",\n  \"media_type\": \"image\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "get_presence",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Ask whether specific users are currently online.\n\n**Server replies with:** `response`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"get_presence\",\n  \"request_id\": \"{{$guid}}\",\n  \"user_ids\": [\n    \"{{peer_user_id}}\"\n  ]\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Calls (WebRTC signalling)",
+          "description": "The server only relays signalling frames between peers; media never touches it.",
+          "item": [
+            {
+              "name": "call.offer",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Start a WebRTC call. `call_type` is `audio` or `video`; `sdp` is your local offer.\n\n**Server replies with:** `call_offer`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"call.offer\",\n  \"peer_id\": \"{{peer_user_id}}\",\n  \"conversation_id\": \"{{conversation_id}}\",\n  \"call_type\": \"video\",\n  \"sdp\": \"{{sdp_offer}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "call.answer",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Answer an incoming call with your SDP answer.\n\n**Server replies with:** `call_answer`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"call.answer\",\n  \"peer_id\": \"{{peer_user_id}}\",\n  \"call_type\": \"video\",\n  \"sdp\": \"{{sdp_answer}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "call.ice_candidate",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Relay an ICE candidate to the peer. Sent repeatedly while negotiating.\n\n**Server replies with:** `call_ice_candidate`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"call.ice_candidate\",\n  \"peer_id\": \"{{peer_user_id}}\",\n  \"candidate\": {\n    \"candidate\": \"candidate:...\",\n    \"sdpMid\": \"0\",\n    \"sdpMLineIndex\": 0\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "call.video_toggle",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Tell the peer you turned your camera on or off.\n\n**Server replies with:** `video_toggle`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"call.video_toggle\",\n  \"peer_id\": \"{{peer_user_id}}\",\n  \"enabled\": false\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "call.screen_share",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Start or stop screen sharing mid-call.\n\n**Server replies with:** `screen_share`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"call.screen_share\",\n  \"peer_id\": \"{{peer_user_id}}\",\n  \"sharing\": true,\n  \"sdp\": \"{{sdp_offer}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "call.end",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "End the call for both sides.\n\n**Server replies with:** `call_ended`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"call.end\",\n  \"peer_id\": \"{{peer_user_id}}\",\n  \"reason\": \"hangup\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Housekeeping",
+          "description": "Keep-alive and error behaviour.",
+          "item": [
+            {
+              "name": "ping",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Keep-alive. Send every 20-30s while idle.\n\n**Server replies with:** `pong`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"ping\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            },
+            {
+              "name": "unknown type (error demo)",
+              "type": "ws-raw-request",
+              "protocolProfileBehavior": {
+                "disableBodyPruning": true
+              },
+              "request": {
+                "header": [],
+                "url": {
+                  "raw": "ws://{{ws_host}}/ws/chat/?token={{jwt}}",
+                  "protocol": "ws",
+                  "host": [
+                    "{{ws_host}}"
+                  ],
+                  "path": [
+                    "ws",
+                    "chat"
+                  ],
+                  "query": [
+                    {
+                      "key": "token",
+                      "value": "{{jwt}}"
+                    }
+                  ]
+                },
+                "description": "Any unrecognised `type` returns a structured error rather than closing the socket.\n\n**Server replies with:** `error`",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"not_a_real_type\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "response": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Notifications \u2014 /ws/notifications/",
+      "description": "Live notification stream for the authenticated user. New notifications are pushed as they happen; no polling required.",
+      "item": [
+        {
+          "name": "Connect (no message)",
+          "type": "ws-raw-request",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "header": [],
+            "url": {
+              "raw": "ws://{{ws_host}}/ws/notifications/?token={{jwt}}",
+              "protocol": "ws",
+              "host": [
+                "{{ws_host}}"
+              ],
+              "path": [
+                "ws",
+                "notifications"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{jwt}}"
+                }
+              ]
+            },
+            "description": "Open the socket. The server sends the connection frame with your current unread count.\n\n**Server replies with:** `connected`"
+          },
+          "response": []
+        },
+        {
+          "name": "mark_read",
+          "type": "ws-raw-request",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "header": [],
+            "url": {
+              "raw": "ws://{{ws_host}}/ws/notifications/?token={{jwt}}",
+              "protocol": "ws",
+              "host": [
+                "{{ws_host}}"
+              ],
+              "path": [
+                "ws",
+                "notifications"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{jwt}}"
+                }
+              ]
+            },
+            "description": "Mark a single notification as read. The reply carries the updated unread count.\n\n**Server replies with:** `marked_read`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"mark_read\",\n  \"notification_id\": \"{{notification_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "mark_all_read",
+          "type": "ws-raw-request",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "header": [],
+            "url": {
+              "raw": "ws://{{ws_host}}/ws/notifications/?token={{jwt}}",
+              "protocol": "ws",
+              "host": [
+                "{{ws_host}}"
+              ],
+              "path": [
+                "ws",
+                "notifications"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{jwt}}"
+                }
+              ]
+            },
+            "description": "Mark every notification as read.\n\n**Server replies with:** `marked_all_read`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"mark_all_read\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "ping",
+          "type": "ws-raw-request",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "header": [],
+            "url": {
+              "raw": "ws://{{ws_host}}/ws/notifications/?token={{jwt}}",
+              "protocol": "ws",
+              "host": [
+                "{{ws_host}}"
+              ],
+              "path": [
+                "ws",
+                "notifications"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{jwt}}"
+                }
+              ]
+            },
+            "description": "Keep-alive.\n\n**Server replies with:** `pong`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"ping\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Polls \u2014 /ws/polls/{poll_id}/",
+      "description": "Live voting on one poll. Every connected client sees tallies update as votes land. Set the `poll_id` collection variable before connecting.",
+      "item": [
+        {
+          "name": "Connect (no message)",
+          "type": "ws-raw-request",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "header": [],
+            "url": {
+              "raw": "ws://{{ws_host}}/ws/polls/{{poll_id}}/?token={{jwt}}",
+              "protocol": "ws",
+              "host": [
+                "{{ws_host}}"
+              ],
+              "path": [
+                "ws",
+                "polls",
+                "{{poll_id}}"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{jwt}}"
+                }
+              ]
+            },
+            "description": "Open the socket for one poll. The server sends the current options and tallies.\n\n**Server replies with:** `connected`"
+          },
+          "response": []
+        },
+        {
+          "name": "vote",
+          "type": "ws-raw-request",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "header": [],
+            "url": {
+              "raw": "ws://{{ws_host}}/ws/polls/{{poll_id}}/?token={{jwt}}",
+              "protocol": "ws",
+              "host": [
+                "{{ws_host}}"
+              ],
+              "path": [
+                "ws",
+                "polls",
+                "{{poll_id}}"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{jwt}}"
+                }
+              ]
+            },
+            "description": "Cast a vote. Rate-limited server-side; the updated tally is broadcast to everyone.\n\n**Server replies with:** `vote.ack`, `poll_event`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"vote\",\n  \"option_id\": \"{{option_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "unvote",
+          "type": "ws-raw-request",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "header": [],
+            "url": {
+              "raw": "ws://{{ws_host}}/ws/polls/{{poll_id}}/?token={{jwt}}",
+              "protocol": "ws",
+              "host": [
+                "{{ws_host}}"
+              ],
+              "path": [
+                "ws",
+                "polls",
+                "{{poll_id}}"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{jwt}}"
+                }
+              ]
+            },
+            "description": "Withdraw your vote from an option.\n\n**Server replies with:** `unvote.ack`, `poll_event`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"unvote\",\n  \"option_id\": \"{{option_id}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "ping",
+          "type": "ws-raw-request",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "header": [],
+            "url": {
+              "raw": "ws://{{ws_host}}/ws/polls/{{poll_id}}/?token={{jwt}}",
+              "protocol": "ws",
+              "host": [
+                "{{ws_host}}"
+              ],
+              "path": [
+                "ws",
+                "polls",
+                "{{poll_id}}"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{jwt}}"
+                }
+              ]
+            },
+            "description": "Keep-alive.\n\n**Server replies with:** `pong`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"ping\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Post \u2014 /ws/posts/{post_id}/",
+      "description": "Live activity on a single post: new comments, likes, reshares and typing indicators. Set the `post_id` collection variable before connecting.",
+      "item": [
+        {
+          "name": "Connect (no message)",
+          "type": "ws-raw-request",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "header": [],
+            "url": {
+              "raw": "ws://{{ws_host}}/ws/posts/{{post_id}}/?token={{jwt}}",
+              "protocol": "ws",
+              "host": [
+                "{{ws_host}}"
+              ],
+              "path": [
+                "ws",
+                "posts",
+                "{{post_id}}"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{jwt}}"
+                }
+              ]
+            },
+            "description": "Open the socket for one post and start receiving its activity.\n\n**Server replies with:** `connected`"
+          },
+          "response": []
+        },
+        {
+          "name": "typing.start",
+          "type": "ws-raw-request",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "header": [],
+            "url": {
+              "raw": "ws://{{ws_host}}/ws/posts/{{post_id}}/?token={{jwt}}",
+              "protocol": "ws",
+              "host": [
+                "{{ws_host}}"
+              ],
+              "path": [
+                "ws",
+                "posts",
+                "{{post_id}}"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{jwt}}"
+                }
+              ]
+            },
+            "description": "Show that you are writing a comment on this post.\n\n**Server replies with:** `post_event`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"typing.start\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "typing.stop",
+          "type": "ws-raw-request",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "header": [],
+            "url": {
+              "raw": "ws://{{ws_host}}/ws/posts/{{post_id}}/?token={{jwt}}",
+              "protocol": "ws",
+              "host": [
+                "{{ws_host}}"
+              ],
+              "path": [
+                "ws",
+                "posts",
+                "{{post_id}}"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{jwt}}"
+                }
+              ]
+            },
+            "description": "Clear your typing indicator.\n\n**Server replies with:** `post_event`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"typing.stop\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "ping",
+          "type": "ws-raw-request",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "header": [],
+            "url": {
+              "raw": "ws://{{ws_host}}/ws/posts/{{post_id}}/?token={{jwt}}",
+              "protocol": "ws",
+              "host": [
+                "{{ws_host}}"
+              ],
+              "path": [
+                "ws",
+                "posts",
+                "{{post_id}}"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{jwt}}"
+                }
+              ]
+            },
+            "description": "Keep-alive.\n\n**Server replies with:** `pong`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"ping\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Feed \u2014 /ws/feed/",
+      "description": "Live feed for the authenticated user. New posts from people you follow are pushed as they are created. Receive-only apart from the keep-alive.",
+      "item": [
+        {
+          "name": "Connect (no message)",
+          "type": "ws-raw-request",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "header": [],
+            "url": {
+              "raw": "ws://{{ws_host}}/ws/feed/?token={{jwt}}",
+              "protocol": "ws",
+              "host": [
+                "{{ws_host}}"
+              ],
+              "path": [
+                "ws",
+                "feed"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{jwt}}"
+                }
+              ]
+            },
+            "description": "Open the socket and start receiving feed events.\n\n**Server replies with:** `connected`"
+          },
+          "response": []
+        },
+        {
+          "name": "ping",
+          "type": "ws-raw-request",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "header": [],
+            "url": {
+              "raw": "ws://{{ws_host}}/ws/feed/?token={{jwt}}",
+              "protocol": "ws",
+              "host": [
+                "{{ws_host}}"
+              ],
+              "path": [
+                "ws",
+                "feed"
+              ],
+              "query": [
+                {
+                  "key": "token",
+                  "value": "{{jwt}}"
+                }
+              ]
+            },
+            "description": "Keep-alive.\n\n**Server replies with:** `pong`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"ping\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "ws_host",
+      "value": "localhost:8000",
+      "type": "string",
+      "description": "WebSocket host and port, no scheme. The scheme is ws:// in the URL; change it to wss:// in production."
+    },
+    {
+      "key": "http_base",
+      "value": "http://localhost:8000",
+      "type": "string",
+      "description": "HTTP origin, used to obtain a JWT."
+    },
+    {
+      "key": "jwt",
+      "value": "",
+      "type": "string",
+      "description": "JWT access token from the login endpoint."
+    },
+    {
+      "key": "conversation_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "message_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "peer_user_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "join_request_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "notification_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "poll_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "option_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "post_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "sdp_offer",
+      "value": "",
+      "type": "string",
+      "description": "Local SDP offer produced by your WebRTC client."
+    },
+    {
+      "key": "sdp_answer",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

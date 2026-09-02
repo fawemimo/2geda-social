@@ -120,18 +120,18 @@ CELERY_BEAT_SCHEDULE = {
     },
     # Advert flight window. Every minute so a start/end time is honoured to the
     # minute the advertiser chose.
-    "activate-due-advertisements-every-minute": {
-        "task": "advertisements.tasks.activate_due_advertisements",
-        "schedule": crontab(minute="*"),
-    },
-    "complete-expired-advertisements-every-minute": {
-        "task": "advertisements.tasks.complete_expired_advertisements",
-        "schedule": crontab(minute="*"),
-    },
-    "pause-exhausted-advertisements-every-5-minutes": {
-        "task": "advertisements.tasks.pause_exhausted_advertisements",
-        "schedule": crontab(minute="*/5"),
-    },
+    # "activate-due-advertisements-every-minute": {
+    #     "task": "advertisements.tasks.activate_due_advertisements",
+    #     "schedule": crontab(minute="*"),
+    # },
+    # "complete-expired-advertisements-every-minute": {
+    #     "task": "advertisements.tasks.complete_expired_advertisements",
+    #     "schedule": crontab(minute="*"),
+    # },
+    # "pause-exhausted-advertisements-every-5-minutes": {
+    #     "task": "advertisements.tasks.pause_exhausted_advertisements",
+    #     "schedule": crontab(minute="*/5"),
+    # },
 }
 
 # Account / OTP tuning knobs — overridable via env without touching code.
@@ -182,7 +182,6 @@ SPECTACULAR_SETTINGS = {
 }
 
 
-# CORS_ALLOWED_ALL_ORIGINS = True
 CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS").split(",")
 CSRF_TRUSTED_ORIGINS = os.getenv("CSRF_TRUSTED_ORIGINS").split(",")
 
