@@ -38,7 +38,6 @@ INSTALLED_APPS = [
     'tickets.apps.TicketsConfig',
     'advertisements.apps.AdvertisementsConfig',
     'config.apps.ConfigConfig',
-    'search.apps.SearchConfig'
 ]
 
 MIDDLEWARE = [

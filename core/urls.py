@@ -33,7 +33,6 @@ urlpatterns = [
     path('api/v2/displays/', include('displays.urls', namespace='displays')),
     path('api/v2/polls/', include('polls.urls', namespace='polls')),
     path('api/v2/tickets/',include('tickets.urls', namespace='tickets')),
-    path('api/v2/search/', include('search.urls', namespace='search')),
     path('api/v2/advertisements/', include('advertisements.urls', namespace='advertisements')),
     path('api/v2/docs/swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='swagger-ui'),
     path('api/v2/docs/redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='redoc'),

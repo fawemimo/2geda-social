@@ -14,14 +14,12 @@ Design principles applied:
   - Scalability: device & location tables are append-only with TTL semantics
 """
 
-from core.indexes import TrigramGinIndex
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
-from django.contrib.postgres.indexes import BrinIndex, GinIndex, OpClass
+from django.contrib.postgres.indexes import BrinIndex, GinIndex
 from django.contrib.postgres.search import SearchVectorField
 from django.db import models
-from django.db.models import F
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
@@ -116,7 +114,7 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, PermissionsMixin, AbstractBaseUs
     )
 
     # ---- Full-text search ----
-    # Populated by a DB trigger (accounts.0006_search_triggers_and_trgm).
+    # Populated by a DB trigger: UPDATE user SET search_vector = to_tsvector(...)
     search_vector = SearchVectorField(null=True, blank=True)
 
     USERNAME_FIELD = "email"
@@ -133,13 +131,6 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, PermissionsMixin, AbstractBaseUs
             models.Index(fields=["referral_code"], name="user_referral_idx"),
             models.Index(fields=["referred_by"], name="user_referred_by_idx"),
             models.Index(fields=["created_at"], name="user_created_at_idx"),
-            # Trigram index so handle lookups do not table-scan. Backs the
-            # cross-entity username matching in the search app, where a post is
-            # matched on its author's handle.
-            TrigramGinIndex(
-                OpClass(F("username"), name="gin_trgm_ops"),
-                name="user_username_trgm_idx",
-            ),
             # Partial index: active, non-deleted users only (most queries)
             models.Index(
                 fields=["email"],
@@ -439,7 +430,6 @@ class UserProfile(BaseModel):
     posts_count = models.PositiveIntegerField(default=0)
  
     # ---- Full-text search ----
-    # Populated by a DB trigger (accounts.0006_search_triggers_and_trgm).
     search_vector = SearchVectorField(null=True, blank=True)
  
     class Meta:
