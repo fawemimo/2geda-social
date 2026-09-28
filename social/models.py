@@ -214,6 +214,10 @@ class Comment(BaseModel):
     )
     body = models.TextField(max_length=1000)
 
+    # ---- Full-text ----
+    # Maintained by a PostgreSQL trigger (social.0005_search_triggers).
+    search_vector = SearchVectorField(null=True, blank=True)
+
     # ---- Counters ----
     likes_count = models.PositiveIntegerField(default=0)
     replies_count = models.PositiveIntegerField(default=0)
@@ -246,6 +250,8 @@ class Comment(BaseModel):
             models.Index(fields=["parent", "created_at"], name="comment_replies_idx"),
             # Author's comment history
             models.Index(fields=["author", "-created_at"], name="comment_author_idx"),
+            # Full-text search over comment bodies
+            GinIndex(fields=["search_vector"], name="comment_search_gin_idx"),
         ]
 
     def __str__(self) -> str:
