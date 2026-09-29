@@ -26,59 +26,24 @@ from search.enums import SearchType
 from social.models import Comment, Like, Post
 from utils.enum import FollowStatus, MediaType, MediaVisibility, PostVisibility
 
-# A query shorter than this returns nothing useful and would scan the whole
-# corpus for a near-universal match, so we reject it outright.
 MIN_QUERY_LENGTH = 2
-
-# Hard ceiling on how deep any single type is scanned to service one page.
-# Results from different tables are interleaved in Python, so serving page N
-# means reading the first N*page_size rows of each type -- this bound is what
-# keeps that from turning into an unbounded scan. `totalItem` and the facet
-# counts always come from real COUNTs and stay accurate regardless, but a page
-# deeper than this cap can legitimately come back short or empty.
 MAX_WINDOW_PER_TYPE = 200
 
-# ---- Full-text (PostgreSQL) tuning ----------------------------------------
 
 TEXT_SEARCH_CONFIG = "english"
-
-# Divides ts_rank by the document length, so a one-word caption does not
-# outrank a paragraph that matches far better. Without it, ts_rank grows with
-# document size and short-but-perfect rows get buried.
 RANK_NORMALIZATION = 32
 
-# Additive nudges on top of ts_rank, for the two things ts_rank cannot see: a
-# field whose entire value is the query, and a field the query starts at the
-# beginning of. ts_rank sums the weight of the matching lexemes, so without
-# these a post that merely mentions "dancing" ties with one titled "dancing".
-# They are deliberately smaller than the spread of a good ts_rank difference,
-# so they break ties rather than override relevance.
 EXACT_MATCH_BONUS = 0.3
 PREFIX_MATCH_BONUS = 0.1
 
-# Character trigrams are meaningless below this length, so a very short query is
-# left to the vector alone rather than being fuzzy-matched against handles.
 MIN_TRIGRAM_QUERY_LENGTH = 3
 
-# The similarity threshold behind `__trigram_similar` is Postgres's own
-# `pg_trgm.similarity_threshold` (0.3 by default), not a setting here -- it is
-# deliberately left to the server.
-
-# ---- Portable (substring) tuning -----------------------------------------
-
-# How tightly a single query token matches one field value. Lower sorts first.
 RANK_EXACT = 0
 RANK_PREFIX = 1
 RANK_CONTAINS = 2
 
-# Number of distinct per-token buckets. Used to shift the phrase tier so that
-# phrase contiguity always dominates, and tightness only breaks ties within a
-# phrase tier.
 TIGHTNESS_BUCKETS = 3
 
-# Worst achievable rank on the portable path: phrase tier 1 (scattered) x 3 +
-# contains. The portable path reports `RANK_WORST - rank` as a score so that
-# higher is better on both paths.
 RANK_WORST = TIGHTNESS_BUCKETS + RANK_CONTAINS
 
 
@@ -110,15 +75,7 @@ class SearchResult(NamedTuple):
 
 @dataclass(frozen=True)
 class SearchSpec:
-    """How one content type is searched.
 
-    vectors : `search_vector` columns, each maintained by a database trigger.
-              These are the index-backed, stemmed, weighted fields.
-    trigram : plain text columns that are *not* in any vector -- currently the
-              author/owner handle on content rows. A row trigger cannot copy a
-              related model's column into its own vector (that needs a join),
-              so these are matched with pg_trgm instead.
-    """
 
     vectors: tuple[str, ...] = ()
     trigram: tuple[str, ...] = ()
@@ -126,8 +83,6 @@ class SearchSpec:
 
 
 SEARCH_SPECS: dict[str, SearchSpec] = {
-    # A user's own searchable text is split across two tables, so it has two
-    # vectors; there is no further column worth trigram-matching.
     SearchType.USERS.value: SearchSpec(
         vectors=("search_vector", "profile__search_vector"),
         substring=(
@@ -168,10 +123,6 @@ SEARCH_SPECS: dict[str, SearchSpec] = {
 
 
 class BaseMatcher:
-    """Turns a queryset into "rows matching this query, scored"."""
-
-    #: Advertised in the response so clients (and logs) can tell which
-    #: implementation served a request.
     engine = "base"
 
     def apply(
@@ -181,13 +132,7 @@ class BaseMatcher:
 
 
 class PostgresFullTextMatcher(BaseMatcher):
-    """Index-backed search using the models' `search_vector` columns.
 
-    Relies on the triggers installed by the `accounts`/`social`/`medias`
-    search migrations. The query itself is built with `websearch_to_tsquery`,
-    so users get web search syntax for free: quoted phrases, `or`, and `-`
-    exclusions.
-    """
 
     engine = "postgres_fulltext"
 
@@ -216,24 +161,10 @@ class PostgresFullTextMatcher(BaseMatcher):
 
         ts_query = self.build_ts_query(query)
 
-        # Content match: the whole query against any of the vector columns.
-        # `search_vector=<SearchQuery>` uses SearchVectorField's registered
-        # `exact` lookup (SearchVectorExact), which emits `search_vector @@ q`
-        # and is what the GIN index can serve.
-        #
-        # `websearch_to_tsquery` ANDs its terms, so this one predicate already
-        # enforces "every token must be accounted for" -- including tokens that
-        # name the author or owner, because the triggers denormalise the handle
-        # into the vector.
         vector_match = Q()
         for vector in spec.vectors:
             vector_match |= Q(**{vector: ts_query})
 
-        # Typo tolerance for handles only. The whole query is the needle, so
-        # this never widens a multi-word query to unrelated content: it either
-        # finds a handle that looks like what was typed, or it does not.
-        # `__trigram_similar` compiles to the `%` operator, and the server's
-        # `similarity_threshold` (0.3 by default) decides what counts as a hit.
         fuzzy_handles = [
             column
             for column in spec.trigram
@@ -441,10 +372,7 @@ class SearchService:
             raise ValidationError(
                 "sort must be either 'relevance' or 'recent'.", code="invalid_sort",
             )
-
-        # A media_type filter is meaningless without the media type selected,
-        # and asking for it on a narrowed query is a client mistake worth
-        # surfacing rather than silently returning nothing.
+        
         if media_type and SearchType.MEDIA.value not in selected_types:
             raise ValidationError(
                 "media_type requires the 'media' type to be selected.",
@@ -519,15 +447,10 @@ class SearchService:
             return PortableSubstringMatcher()
 
         fts = PostgresFullTextMatcher()
-        # Stopword-only or punctuation-only queries produce an empty tsquery,
-        # which matches nothing at all. Fall back so they still behave like the
-        # substring matcher.
         if fts.ts_query_is_empty(query):
             return PortableSubstringMatcher()
         return fts
-
-    # ---- type resolution ---------------------------------------------------
-
+    
     def _resolve_types(self, types: list[str] | None) -> list[str]:
         """Validate the `types` filter, defaulting to every searchable type."""
         if not types:
@@ -725,19 +648,7 @@ class SearchService:
     def _merge(
         self, scored_by_type: dict[str, list[ScoredResult]], *, sort: str
     ) -> list[ScoredResult]:
-        """Interleave types so one chatty type cannot monopolise the page.
-
-        `sort=recent` is an explicit request for pure recency, so it is applied
-        globally. Otherwise each type keeps its own relevance ordering and the
-        types are alternated: the best post, then the best user, then the second
-        best post, and so on.
-
-        Comparing raw scores across types is not meaningful anyway -- each type
-        has its own vector, its own document lengths and its own normalisation
-        -- so interleaving is both fairer and more predictable than a global
-        score sort, which would put one type's weakest hit ahead of another
-        type's strongest.
-        """
+        
         if sort == "recent":
             merged = [hit for hits in scored_by_type.values() for hit in hits]
             merged.sort(key=lambda hit: hit.created_at, reverse=True)
@@ -756,11 +667,6 @@ class SearchService:
 
 
     def _round_robin(self, columns: list[list[ScoredResult]]) -> list[ScoredResult]:
-        """Take one hit from each column per pass, until every column is drained.
-
-        Each column arrives already ordered by score then recency, so this
-        preserves per-type relevance while keeping the page balanced.
-        """
         ordered: list[ScoredResult] = []
         index = 0
         total = sum(len(column) for column in columns)

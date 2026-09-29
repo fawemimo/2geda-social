@@ -77,12 +77,6 @@ RESULT_SERIALIZERS: dict[str, type[serializers.BaseSerializer]] = {
 
 
 class SearchResultItemSerializer(serializers.Serializer):
-    """One hit, tagged with which type it is.
-
-    The nested `item` shape varies by `type`; the model + type discriminator is
-    what lets a client render one heterogeneous list.
-    """
-
     type = serializers.ChoiceField(choices=SearchType.choices())
     score = serializers.FloatField(
         help_text=(

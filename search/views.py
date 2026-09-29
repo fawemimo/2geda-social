@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import json
+
 from accounts.services.exceptions import ServiceError
+from django.core.cache import cache
 from django.utils.dateparse import parse_date, parse_datetime
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
@@ -13,9 +17,10 @@ from search.services import SearchService
 from utils.pagination import MAX_PAGE_SIZE
 from utils.responses import APIResponse
 
+SEARCH_CACHE_TTL = 300000
+
 
 def _parse_datetime_param(request, name: str):
-    """Accept either a bare date (2026-01-31) or a full ISO timestamp."""
     raw = request.query_params.get(name, "").strip()
     if not raw:
         return None
@@ -34,18 +39,6 @@ def _parse_datetime_param(request, name: str):
 
 
 class SearchView(APIView):
-    """One endpoint, every searchable type, with the matching types reported back.
-
-    `GET /api/v2/search/?q=dancing` returns the ranked hits plus a `types` array
-    of per-type counts, so a client can render "Users (4) Posts (128) Media (2)"
-    tabs and then narrow with `?types=posts,media` without a second round trip.
-
-    On PostgreSQL the matching is index-backed full-text search over each
-    model's `search_vector` column, with web-search query syntax (quoted
-    phrases, `or`, `-` exclusions) and stemming. Elsewhere -- or if the search
-    triggers have not been migrated -- it falls back to substring matching, and
-    the `engine` field in the response says which one ran.
-    """
 
     permission_classes = [AllowAny]
 
@@ -110,14 +103,33 @@ class SearchView(APIView):
         if page_size > MAX_PAGE_SIZE:
             page_size = MAX_PAGE_SIZE
 
+        media_type = request.query_params.get("media_type", "").strip() or None
+        date_from = _parse_datetime_param(request, "date_from")
+        date_to = _parse_datetime_param(request, "date_to")
+        sort = request.query_params.get("sort", "relevance").strip() or "relevance"
+
+        cache_key = self._build_cache_key(
+            query=query, types=types, media_type=media_type,
+            date_from=date_from, date_to=date_to, sort=sort,
+            page=page, page_size=page_size, user=request.user,
+        )
+
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return APIResponse.success(
+                message="Search results fetched successfully.",
+                data=cached["data"],
+                extra=cached["extra"],
+            )
+
         try:
             result = SearchService().search(
                 query=query,
                 types=types,
-                media_type=request.query_params.get("media_type", "").strip() or None,
-                date_from=_parse_datetime_param(request, "date_from"),
-                date_to=_parse_datetime_param(request, "date_to"),
-                sort=request.query_params.get("sort", "relevance").strip() or "relevance",
+                media_type=media_type,
+                date_from=date_from,
+                date_to=date_to,
+                sort=sort,
                 page=page,
                 page_size=page_size,
                 user=request.user,
@@ -125,23 +137,38 @@ class SearchView(APIView):
         except ServiceError as e:
             return APIResponse.error(message=e.message, code=e.code, status_code=e.status_code)
 
+        data = serialize_results(result, request=request)
+        extra = {
+            "query": result.query,
+            "tokens": result.tokens,
+            "types": result.facets,
+            "appliedFilters": result.applied_filters,
+            "engine": result.engine,
+            "currentPage": result.page,
+            "nextPage": result.page + 1 if result.has_next else None,
+            "previousPage": result.page - 1 if result.has_previous else None,
+            "totalPages": result.total_pages,
+            "totalItem": result.total,
+            "totalPerPage": result.page_size,
+        }
+
+        cache.set(cache_key, {"data": data, "extra": extra}, SEARCH_CACHE_TTL)
+
         return APIResponse.success(
             message="Search results fetched successfully.",
-            data=serialize_results(result, request=request),
-            extra={
-                "query": result.query,
-                "tokens": result.tokens,
-                "types": result.facets,
-                "appliedFilters": result.applied_filters,
-                "engine": result.engine,
-                "currentPage": result.page,
-                "nextPage": result.page + 1 if result.has_next else None,
-                "previousPage": result.page - 1 if result.has_previous else None,
-                "totalPages": result.total_pages,
-                "totalItem": result.total,
-                "totalPerPage": result.page_size,
-            },
+            data=data,
+            extra=extra,
         )
+
+    def _build_cache_key(self, *, query, types, media_type, date_from, date_to, sort, page, page_size, user):
+        user_id = user.id if user and user.is_authenticated else "anon"
+        raw = json.dumps(
+            [query, sorted(types) if types else None, media_type,
+             str(date_from), str(date_to), sort, page, page_size, user_id],
+            sort_keys=True,
+        )
+        digest = hashlib.sha256(raw.encode()).hexdigest()[:16]
+        return f"search:{digest}"
 
     def _positive_int(self, raw, name: str, *, default: int) -> int:
         try:
@@ -158,8 +185,6 @@ class SearchView(APIView):
 
 
 class SearchTypeListView(APIView):
-    """The valid `types` values, so a client need not hardcode the list."""
-
     permission_classes = [AllowAny]
 
     @swagger_auto_schema(operation_id="search_types", responses={200: "Available search types"})
