@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from datetime import timedelta
 
@@ -8,6 +9,7 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import models
 from django.utils import timezone
 from rest_framework_simplejwt.exceptions import TokenError
@@ -39,6 +41,10 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
         super().__init__(*args, **kwargs)
         self.user = None
         self.conversation_ids: set[str] = set()
+
+    @classmethod
+    async def encode_json(cls, content):
+        return json.dumps(content, cls=DjangoJSONEncoder)
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Connection lifecycle
