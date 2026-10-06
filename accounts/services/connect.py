@@ -41,9 +41,11 @@ class ConnectService:
             lon = float(meta.get("lon", 0))
 
         if lat is None or lon is None:
-            current_loc = UserLocation.objects.filter(
-                user=current_user
-            ).order_by("-created_at").first()
+            current_loc = (
+                UserLocation.objects.filter(user=current_user)
+                .order_by("-created_at")
+                .first()
+            )
             if current_loc and current_loc.latitude and current_loc.longitude:
                 lat = float(current_loc.latitude)
                 lon = float(current_loc.longitude)
@@ -59,7 +61,10 @@ class ConnectService:
         connected = DiscoveryCache.connected_user_ids(uid)
 
         nearby = DiscoveryCache.nearby_user_ids(
-            lat, lon, max_distance, exclude=connected | {uid},
+            lat,
+            lon,
+            max_distance,
+            exclude=connected | {uid},
         )
 
         if not nearby and not DiscoveryCache.geo_has_data():
@@ -82,11 +87,16 @@ class ConnectService:
                 if country.lower() not in n_meta.get("country", "").lower():
                     continue
 
-            results.append({
-                "id": n_uid,
-                "distance_km": dist,
-                **{k: (n_meta.get(k) if n_meta else None) for k in ("city", "state")},
-            })
+            results.append(
+                {
+                    "id": n_uid,
+                    "distance_km": dist,
+                    **{
+                        k: (n_meta.get(k) if n_meta else None)
+                        for k in ("city", "state")
+                    },
+                }
+            )
 
         DiscoveryCache.set_cached(uid, filters, results)
 
@@ -125,6 +135,7 @@ class ConnectService:
         )
 
         from accounts.models import UserLocation as UL
+
         latest_loc_qs = UL.objects.filter(user=OuterRef("pk")).order_by("-created_at")
         qs = qs.annotate(
             loc_city=city_case,
@@ -143,9 +154,11 @@ class ConnectService:
     def _get_discoverable_users_pg(self, current_user: User, filters: dict):
         qs = self._user_base_qs(current_user)
 
-        current_loc = UserLocation.objects.filter(
-            user=current_user
-        ).order_by("-created_at").first()
+        current_loc = (
+            UserLocation.objects.filter(user=current_user)
+            .order_by("-created_at")
+            .first()
+        )
 
         qs = self._annotate_location(qs)
         qs = qs.filter(loc_lat__isnull=False, loc_lon__isnull=False)
@@ -169,7 +182,8 @@ class ConnectService:
 
     def _user_base_qs(self, current_user: User):
         qs = User.objects.exclude(id=current_user.id).filter(
-            is_active=True, is_deleted=False,
+            is_active=True,
+            is_deleted=False,
         )
         connected_req = Connection.objects.filter(
             requester=current_user,
@@ -200,7 +214,9 @@ class ConnectService:
         dlon = lon2 - lon1
         dlat = lat2 - lat1
 
-        a = Power(Sin(dlat / 2.0), 2) + Cos(lat1) * Cos(lat2) * Power(Sin(dlon / 2.0), 2)
+        a = Power(Sin(dlat / 2.0), 2) + Cos(lat1) * Cos(lat2) * Power(
+            Sin(dlon / 2.0), 2
+        )
         c = 2.0 * ASin(Sqrt(a))
         distance_expr = ExpressionWrapper(6371.0 * c, output_field=FloatField())
 
@@ -221,7 +237,8 @@ class ConnectService:
         )
 
         DiscoveryCache.add_connection(
-            str(requester.id), str(recipient.id),
+            str(requester.id),
+            str(recipient.id),
         )
 
         send_user_push_notification.delay(
@@ -239,12 +256,16 @@ class ConnectService:
         )
         return connection
 
-    def respond_to_connection(self, user: User, connection_id: str, action: str) -> Connection:
+    def respond_to_connection(
+        self, user: User, connection_id: str, action: str
+    ) -> Connection:
         from accounts.tasks import send_user_push_notification
 
         try:
             connection = Connection.objects.get(
-                id=connection_id, recipient=user, status=ConnectionStatus.PENDING.value,
+                id=connection_id,
+                recipient=user,
+                status=ConnectionStatus.PENDING.value,
             )
         except Connection.DoesNotExist:
             raise ValueError("Connection request not found or already processed.")
@@ -254,7 +275,8 @@ class ConnectService:
             connection.accepted_at = timezone.now()
 
             DiscoveryCache.add_connection(
-                str(connection.requester_id), str(connection.recipient_id),
+                str(connection.requester_id),
+                str(connection.recipient_id),
             )
 
             send_user_push_notification.delay(
@@ -267,12 +289,29 @@ class ConnectService:
             connection.status = ConnectionStatus.REJECTED.value
 
             DiscoveryCache.remove_connection(
-                str(connection.requester_id), str(connection.recipient_id),
+                str(connection.requester_id),
+                str(connection.recipient_id),
             )
         else:
             raise ValueError("Invalid action.")
 
         connection.save(
-            update_fields=["status", "accepted_at"] if action == "accept" else ["status"],
+            update_fields=(
+                ["status", "accepted_at"] if action == "accept" else ["status"]
+            ),
         )
         return connection
+
+    def get_pending_connections(self, user: User):
+        """Return active users who have sent this user a pending request."""
+        requester_ids = Connection.objects.filter(
+            recipient=user,
+            status=ConnectionStatus.PENDING.value,
+        ).values_list("requester_id", flat=True)
+
+        pending_users = User.objects.filter(
+            id__in=requester_ids,
+            is_active=True,
+            is_deleted=False,
+        )
+        return self._annotate_location(pending_users)

@@ -7,8 +7,9 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.db import transaction
 from drf_yasg import openapi
-from drf_yasg.utils import swagger_auto_schema 
+from drf_yasg.utils import swagger_auto_schema
 from accounts.models import User
 from accounts.cache import (
     CACHE_DETAIL_TTL,
@@ -52,7 +53,11 @@ from accounts.services import (
 )
 from accounts.services.connect import ConnectService
 from accounts.services.device import DevicePayload
-from accounts.tasks import async_respond_to_connection, async_send_connection_request, process_user_location
+from accounts.tasks import (
+    async_respond_to_connection,
+    async_send_connection_request,
+    process_user_location,
+)
 from accounts.services.exceptions import NotFoundError
 from accounts.throttles import (
     LoginThrottle,
@@ -63,7 +68,8 @@ from accounts.throttles import (
 from utils.enum import OTPChannel, OTPPurpose
 from utils.pagination import StandardPagination
 from utils.responses import APIResponse
-
+from medias.models import Media, MediaVariant
+from medias.tasks import delete_media_file
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +79,6 @@ def _client_ip(request) -> str | None:
     if fwd:
         return fwd.split(",")[0].strip()
     return request.META.get("REMOTE_ADDR")
-
 
 
 class RegisterView(APIView):
@@ -106,7 +111,8 @@ class RegisterView(APIView):
         if result.phone_number:
             resp_data["phone_number"] = result.phone_number
         channel = (
-            "email" if result.email
+            "email"
+            if result.email
             else (data.validated_data.get("channel") or "WhatsApp")
         )
         return APIResponse.success(
@@ -169,7 +175,7 @@ class VerifyRegistrationOTPView(APIView):
         )
 
 
-class ResendOTPView(APIView):   
+class ResendOTPView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = [OTPRequestThrottle]
     throttle_scope = "otp_request"
@@ -199,19 +205,22 @@ class ResendOTPView(APIView):
             if result.phone_number:
                 resp_data["phone_number"] = result.phone_number
             channel = (
-                "email" if result.email
+                "email"
+                if result.email
                 else (data.validated_data.get("channel") or "WhatsApp")
             )
             return APIResponse.success(
                 message=f"A new OTP has been sent to your {channel}.",
                 data=resp_data,
             )
-        
+
         email = email.lower() if email else email
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist as exc:
-            raise NotFoundError("No account found for this email.", code="user_not_found") from exc
+            raise NotFoundError(
+                "No account found for this email.", code="user_not_found"
+            ) from exc
 
         issued = OTPService().issue(
             user=user,
@@ -221,6 +230,7 @@ class ResendOTPView(APIView):
             ip_address=_client_ip(request),
         )
         from accounts import tasks
+
         tasks.send_otp_email.delay(
             to=email, code=issued.code, purpose=purpose, username=user.username
         )
@@ -283,7 +293,7 @@ class LogoutEverywhereView(APIView):
         )
 
 
-#  token management 
+#  token management
 class TokenRefreshView(APIView):
     permission_classes = [AllowAny]
 
@@ -293,6 +303,7 @@ class TokenRefreshView(APIView):
         data.is_valid(raise_exception=True)
         tokens = TokenService().refresh(data.validated_data["refresh"])
         return APIResponse.success(message="Token refreshed successfully.", data=tokens)
+
 
 class PasswordResetRequestView(APIView):
     permission_classes = [AllowAny]
@@ -387,6 +398,40 @@ class MeView(APIView):
         return response
 
 
+class AccountDeleteView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_description=(
+            "Permanently deletes the authenticated account and related records. "
+            "This action cannot be undone."
+        ),
+        responses={204: "Account deleted successfully."},
+    )
+    def delete(self, request):
+
+        user = request.user
+        media_ids = list(Media.objects.filter(owner=user).values_list("pk", flat=True))
+        storage_keys = list(
+            Media.objects.filter(pk__in=media_ids).values_list("storage_key", flat=True)
+        )
+        storage_keys.extend(
+            MediaVariant.objects.filter(media_id__in=media_ids).values_list(
+                "storage_key", flat=True
+            )
+        )
+
+        with transaction.atomic():
+            user.delete()
+            for storage_key in storage_keys:
+                transaction.on_commit(
+                    lambda key=storage_key: delete_media_file.delay(key)
+                )
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class ProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -398,16 +443,19 @@ class ProfileView(APIView):
             data=UserProfileSerializer(profile).data,
         )
 
-    @swagger_auto_schema(request_body=ProfileUpdateSerializer, responses={200: UserProfileSerializer()})
+    @swagger_auto_schema(
+        request_body=ProfileUpdateSerializer, responses={200: UserProfileSerializer()}
+    )
     def patch(self, request):
         data = ProfileUpdateSerializer(data=request.data, partial=True)
         data.is_valid(raise_exception=True)
-        profile = ProfileService().update_partial(user=request.user, data=data.validated_data)
+        profile = ProfileService().update_partial(
+            user=request.user, data=data.validated_data
+        )
         return APIResponse.success(
             message="Profile updated successfully.",
             data=UserProfileSerializer(profile).data,
         )
-
 
 
 def _dispatch_profile_image_upload(request, field: str) -> Response:
@@ -475,7 +523,6 @@ def _delete_profile_image(request, field: str) -> Response:
 
     old_media_id = str(old_media.pk)
 
-    
     with transaction.atomic():
         setattr(profile, field, None)
         profile.save(update_fields=[field])
@@ -513,6 +560,7 @@ class ProfileAvatarUpdateView(APIView):
 class ProfileCoverUpdateView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
+
     @swagger_auto_schema(
         request_body=ProfileImageUploadSerializer,
         responses={202: "Accepted — image queued for processing"},
@@ -528,6 +576,7 @@ class ProfileCoverUpdateView(APIView):
 class ProfileDisplayPhotoUpdateView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
+
     @swagger_auto_schema(
         request_body=ProfileImageUploadSerializer,
         responses={202: "Accepted — image queued for processing"},
@@ -541,7 +590,7 @@ class ProfileDisplayPhotoUpdateView(APIView):
 
 
 class DeviceListCreateView(APIView):
-    
+
     permission_classes = [IsAuthenticated]
     pagination_message = "Devices fetched successfully."
 
@@ -586,7 +635,12 @@ class DeviceDetailView(APIView):
 
     @swagger_auto_schema(
         manual_parameters=[
-            openapi.Parameter("device_id", openapi.IN_PATH, description="Device ID", type=openapi.TYPE_STRING),
+            openapi.Parameter(
+                "device_id",
+                openapi.IN_PATH,
+                description="Device ID",
+                type=openapi.TYPE_STRING,
+            ),
         ],
     )
     def delete(self, request, device_id):
@@ -600,7 +654,12 @@ class DevicePushTokenView(APIView):
     @swagger_auto_schema(
         request_body=PushTokenUpdateSerializer,
         manual_parameters=[
-            openapi.Parameter("device_id", openapi.IN_PATH, description="Device ID", type=openapi.TYPE_STRING),
+            openapi.Parameter(
+                "device_id",
+                openapi.IN_PATH,
+                description="Device ID",
+                type=openapi.TYPE_STRING,
+            ),
         ],
     )
     def post(self, request, device_id):
@@ -622,7 +681,12 @@ class DeviceTrustView(APIView):
 
     @swagger_auto_schema(
         manual_parameters=[
-            openapi.Parameter("device_id", openapi.IN_PATH, description="Device ID", type=openapi.TYPE_STRING),
+            openapi.Parameter(
+                "device_id",
+                openapi.IN_PATH,
+                description="Device ID",
+                type=openapi.TYPE_STRING,
+            ),
         ],
     )
     def post(self, request, device_id):
@@ -643,9 +707,13 @@ class UserListView(APIView):
         if cached is not None:
             return Response(data=cached)
 
-        qs = User.objects.filter(is_active=True, is_deleted=False).select_related(
-            "profile__avatar",
-        ).order_by("-created_at")
+        qs = (
+            User.objects.filter(is_active=True, is_deleted=False)
+            .select_related(
+                "profile__avatar",
+            )
+            .order_by("-created_at")
+        )
 
         FILTER_MAP = {
             "username": "username__icontains",
@@ -691,7 +759,8 @@ class UserDetailView(APIView):
 
         try:
             user = User.objects.select_related(
-                "profile__avatar", "profile__cover_photo",
+                "profile__avatar",
+                "profile__cover_photo",
             ).get(pk=user_id, is_active=True, is_deleted=False)
         except User.DoesNotExist:
             return APIResponse.error(
@@ -706,17 +775,27 @@ class UserDetailView(APIView):
         cache.set(cache_key, response.data, timeout=CACHE_DETAIL_TTL)
         return response
 
- 
 
 class ConnectDiscoveryView(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
         manual_parameters=[
-            openapi.Parameter("distance_km", openapi.IN_QUERY, type=openapi.TYPE_NUMBER, required=False),
-            openapi.Parameter("city", openapi.IN_QUERY, type=openapi.TYPE_STRING, required=False),
-            openapi.Parameter("state", openapi.IN_QUERY, type=openapi.TYPE_STRING, required=False),
-            openapi.Parameter("country", openapi.IN_QUERY, type=openapi.TYPE_STRING, required=False),
+            openapi.Parameter(
+                "distance_km",
+                openapi.IN_QUERY,
+                type=openapi.TYPE_NUMBER,
+                required=False,
+            ),
+            openapi.Parameter(
+                "city", openapi.IN_QUERY, type=openapi.TYPE_STRING, required=False
+            ),
+            openapi.Parameter(
+                "state", openapi.IN_QUERY, type=openapi.TYPE_STRING, required=False
+            ),
+            openapi.Parameter(
+                "country", openapi.IN_QUERY, type=openapi.TYPE_STRING, required=False
+            ),
         ],
         responses={200: ConnectUserSerializer(many=True)},
     )
@@ -725,8 +804,10 @@ class ConnectDiscoveryView(APIView):
         filters = ConnectFilterSerializer(data=request.query_params)
         filters.is_valid(raise_exception=True)
 
-        queryset = ConnectService().get_discoverable_users(request.user, filters.validated_data)
-        
+        queryset = ConnectService().get_discoverable_users(
+            request.user, filters.validated_data
+        )
+
         paginator = StandardPagination()
         page = paginator.paginate_queryset(queryset, request, view=self)
         if page is None:
@@ -743,20 +824,25 @@ class ConnectRequestView(APIView):
 
     @swagger_auto_schema(
         manual_parameters=[
-            openapi.Parameter("user_id", openapi.IN_PATH, description="Recipient user ID", type=openapi.TYPE_STRING),
+            openapi.Parameter(
+                "user_id",
+                openapi.IN_PATH,
+                description="Recipient user ID",
+                type=openapi.TYPE_STRING,
+            ),
         ],
     )
     def post(self, request, user_id):
-        
+
         async_send_connection_request.delay(
-            requester_id=str(request.user.id),
-            recipient_id=str(user_id)
+            requester_id=str(request.user.id), recipient_id=str(user_id)
         )
         return APIResponse.success(
             message="Connection request dispatched successfully.",
             data={},
-            status_code=status.HTTP_202_ACCEPTED
+            status_code=status.HTTP_202_ACCEPTED,
         )
+
 
 class ConnectRespondView(APIView):
     permission_classes = [IsAuthenticated]
@@ -764,24 +850,41 @@ class ConnectRespondView(APIView):
     @swagger_auto_schema(
         request_body=ConnectRespondSerializer,
         manual_parameters=[
-            openapi.Parameter("connection_id", openapi.IN_PATH, description="Connection ID", type=openapi.TYPE_STRING),
+            openapi.Parameter(
+                "connection_id",
+                openapi.IN_PATH,
+                description="Connection ID",
+                type=openapi.TYPE_STRING,
+            ),
         ],
     )
     def post(self, request, connection_id):
-        
+
         data = ConnectRespondSerializer(data=request.data)
         data.is_valid(raise_exception=True)
 
         async_respond_to_connection.delay(
             user_id=str(request.user.id),
             connection_id=str(connection_id),
-            action=data.validated_data["action"]
+            action=data.validated_data["action"],
         )
-        
+
         return APIResponse.success(
             message=f"Connection response ({data.validated_data['action']}) dispatched successfully.",
             data={},
-            status_code=status.HTTP_202_ACCEPTED
+            status_code=status.HTTP_202_ACCEPTED,
+        )
+
+
+class PendingConnectionsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(responses={200: ConnectUserSerializer(many=True)})
+    def get(self, request):
+        pending_connections = ConnectService().get_pending_connections(request.user)
+        return APIResponse.success(
+            message="Pending connections fetched successfully.",
+            data=ConnectUserSerializer(pending_connections, many=True).data,
         )
 
 
@@ -795,8 +898,9 @@ class UserLocationUpdateView(APIView):
 
         lat = float(data.validated_data["latitude"])
         lon = float(data.validated_data["longitude"])
-        
+
         from accounts.services.discovery_cache import DiscoveryCache
+
         uid = str(request.user.id)
         DiscoveryCache.set_location(uid, lat, lon)
         DiscoveryCache.set_metadata(uid, lat=str(lat), lon=str(lon))
@@ -806,11 +910,11 @@ class UserLocationUpdateView(APIView):
             user_id=uid,
             latitude=str(lat),
             longitude=str(lon),
-            ip_address=_client_ip(request)
+            ip_address=_client_ip(request),
         )
 
         return APIResponse.success(
             message="Location update accepted.",
             data={},
-            status_code=status.HTTP_202_ACCEPTED
+            status_code=status.HTTP_202_ACCEPTED,
         )
