@@ -1,10 +1,9 @@
 from __future__ import annotations
-
 import os
-
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from accounts.models import User, UserDevice, UserProfile
+from accounts.models import User, UserDevice, UserPhoneCatalog, UserProfile
+from django.core.cache import cache
 from utils import images
 from utils.enum import DevicePlatform
 
@@ -260,12 +259,11 @@ class ConnectUserSerializer(serializers.ModelSerializer):
     distance_km = serializers.FloatField(read_only=True, required=False)
     city = serializers.CharField(source='loc_city', read_only=True, required=False)
     state = serializers.CharField(source='loc_state', read_only=True, required=False)
-    display_name = serializers.CharField(source='profile.display_name', read_only=True)
-    avatar = serializers.StringRelatedField(source='profile.avatar', read_only=True)
+    profile = UserProfileSerializer(read_only=True)
 
     class Meta:
         model = User
-        fields = ("id", "username", "display_name", "avatar", "distance_km", "city", "state")
+        fields = ("id", "distance_km", "city", "state", "profile")
 
 class ConnectRespondSerializer(serializers.Serializer):
     action = serializers.ChoiceField(choices=["accept", "reject"])
@@ -323,6 +321,10 @@ class UserDetailSerializer(serializers.ModelSerializer):
         ]
 
     def get_is_online(self, obj) -> bool:
-        from django.core.cache import cache
         return cache.get(f"online_user:{obj.id}") is not None
 
+
+class UserPhoneCatalogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserPhoneCatalog
+        fields = ["id", "phone_name", "phone_serial_no", "phone_type"]

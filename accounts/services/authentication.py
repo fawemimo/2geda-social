@@ -4,7 +4,6 @@ import logging
 from dataclasses import dataclass
 from datetime import timedelta
 
-from django.conf import settings
 from django.contrib.auth import authenticate
 from django.utils import timezone
 
@@ -14,7 +13,6 @@ from .exceptions import (
     AccountInactiveError,
     AccountLockedError,
     AuthenticationError,
-    NotFoundError,
     ValidationError,
 )
 from .interfaces import IRateLimiter

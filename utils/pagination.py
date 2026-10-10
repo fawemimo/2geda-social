@@ -7,7 +7,7 @@ from rest_framework.pagination import CursorPagination, PageNumberPagination
 from rest_framework.response import Response
 
 
-DEFAULT_PAGE_SIZE = 20
+DEFAULT_PAGE_SIZE = 100
 MAX_PAGE_SIZE = 200
 
 # Page-number pagination wrapped in the project's response envelope.

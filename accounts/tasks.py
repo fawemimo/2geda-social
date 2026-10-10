@@ -146,15 +146,10 @@ def purge_expired_otps(*, older_than_days: int = 1) -> int:
 def process_user_location(
     user_id: str, latitude: str, longitude: str, ip_address: str | None = None
 ) -> None:
+    from django.db import transaction
     from accounts.models import User, UserLocation
     from accounts.services.discovery_cache import DiscoveryCache
     from clients.google.location_address import GoogleLocation
-
-    try:
-        user = User.objects.get(pk=user_id)
-    except User.DoesNotExist:
-        logger.exception(f"User {user_id} not found for location processing.")
-        return
 
     # Convert to float for Google API
     lat_f, lon_f = float(latitude), float(longitude)
@@ -162,14 +157,32 @@ def process_user_location(
     # Reverse geocode
     location_data = GoogleLocation().get_address(latitude=lat_f, longitude=lon_f)
 
-    # Store in database
-    UserLocation.objects.create(
-        user=user,
-        latitude=latitude,
-        longitude=longitude,
-        ip_address=ip_address,
-        location_data=location_data,
-    )
+    try:
+        with transaction.atomic():
+            user = User.objects.select_for_update().get(pk=user_id)
+            locations = UserLocation.objects.filter(user=user).order_by("-created_at")
+            current = locations.first()
+            if current is None:
+                UserLocation.objects.create(
+                    user=user,
+                    latitude=lat_f,
+                    longitude=lon_f,
+                    ip_address=ip_address,
+                    location_data=location_data,
+                )
+            else:
+                current.latitude = lat_f
+                current.longitude = lon_f
+                current.ip_address = ip_address
+                current.location_data = location_data
+                current.save(update_fields=[
+                    "latitude", "longitude", "ip_address", "location_data", "updated_at",
+                ])
+                # Remove any duplicate rows left by earlier versions of this task.
+                locations.exclude(pk=current.pk).delete()
+    except User.DoesNotExist:
+        logger.exception("User %s not found for location processing.", user_id)
+        return
 
     # Warm Redis cache
     try:

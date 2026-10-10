@@ -2,14 +2,9 @@ from __future__ import annotations
 
 import logging
 from typing import Any
-
 from django.db import transaction
-
 from accounts.models import User, UserProfile
-
-from .exceptions import NotFoundError, ValidationError
-
-
+from .exceptions import ValidationError
 logger = logging.getLogger(__name__)
 
 

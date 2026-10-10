@@ -6,11 +6,13 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
+from rest_framework.viewsets import ModelViewSet
 from django.db import transaction
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
-from accounts.models import User
+from accounts.models import User, UserPhoneCatalog
 from accounts.cache import (
     CACHE_DETAIL_TTL,
     CACHE_LIST_TTL,
@@ -39,6 +41,7 @@ from accounts.serializers import (
     UserListSerializer,
     UserLocationIngestSerializer,
     UserMeSerializer,
+    UserPhoneCatalogSerializer,
     UserProfileSerializer,
     VerifyOTPSerializer,
 )
@@ -695,6 +698,49 @@ class DeviceTrustView(APIView):
             message="Device marked as trusted.",
             data=UserDeviceSerializer(device).data,
         )
+
+class UserPhoneCataLogModelViewSet(ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = UserPhoneCatalogSerializer
+    queryset = UserPhoneCatalog.objects.all()
+    pagination_class = StandardPagination
+    pagination_message = "Phone catalog entries fetched successfully."
+
+    def get_queryset(self):
+        return self.queryset.filter(user=self.request.user, is_deleted=False).order_by("-created_at")
+
+    def list(self, request, *args, **kwargs):
+        from accounts.services.phone_catalog_cache import get_list, set_list
+
+        cached = get_list(request.user.pk, request.query_params)
+        if cached is not None:
+            return Response(cached)
+        response = super().list(request, *args, **kwargs)
+        set_list(request.user.pk, request.query_params, response.data)
+        return response
+
+    def perform_create(self, serializer):
+        # Lock the user row so simultaneous creates cannot exceed the limit.
+        with transaction.atomic():
+            user = User.objects.select_for_update().get(pk=self.request.user.pk)
+            count = UserPhoneCatalog.objects.filter(user=user, is_deleted=False).count()
+            if count >= 10:
+                raise ValidationError({"phone_catalog": "You have reached the maximum number of phone catalog entries (10)."})
+            serializer.save(user=user)
+        self._invalidate_list_cache()
+
+    def perform_update(self, serializer):
+        serializer.save()
+        self._invalidate_list_cache()
+
+    def perform_destroy(self, instance):
+        instance.delete()
+        self._invalidate_list_cache()
+
+    def _invalidate_list_cache(self):
+        from accounts.services.phone_catalog_cache import invalidate_list
+
+        invalidate_list(self.request.user.pk)
 
 
 class UserListView(APIView):

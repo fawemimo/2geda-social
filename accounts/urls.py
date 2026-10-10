@@ -1,10 +1,20 @@
 from django.urls import path
+from django.urls import include
+from rest_framework.routers import DefaultRouter
 
 from accounts import views
 
 app_name = "accounts"
 
+router = DefaultRouter()
+router.register(
+    "me/phone-catalog",
+    views.UserPhoneCataLogModelViewSet,
+    basename="user-phone-catalog",
+)
+
 urlpatterns = [
+    path("", include(router.urls)),
     # registration & OTP
     path("auth/register/", views.RegisterView.as_view(), name="register"),
     path(

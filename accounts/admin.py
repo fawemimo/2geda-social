@@ -10,6 +10,7 @@ from accounts.models import (
     User,
     UserDevice,
     UserLocation,
+    UserPhoneCatalog,
     UserProfile,
 )
 from utils.admin import BaseModelAdmin, BaseStackedInline
@@ -195,3 +196,7 @@ class FollowAdmin(BaseModelAdmin):
         "following__username",
     )
     list_filter = ("status",)
+
+
+@admin.register(UserPhoneCatalog)
+class UserPhoneCatalogAdmin(BaseModelAdmin):...

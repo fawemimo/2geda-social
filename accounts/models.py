@@ -275,11 +275,10 @@ class UserDevice(BaseModel):
 
 class UserLocation(UUIDPrimaryKeyMixin, TimestampMixin):
     """
-    Append-only location snapshot.
+    The user's current location and reverse-geocoded address.
 
-    - Never mutate; always insert a new row.
-    - The most recent row per user is the canonical location.
-    - Older rows are archived / purged after a retention window.
+    Location updates mutate this record rather than creating a history of
+    snapshots. The most recent row is used if legacy duplicates are present.
     - PostGIS point field can be added later without schema upheaval:
         position = PointField(geography=True, null=True)
 
@@ -654,3 +653,28 @@ class KYC(BaseModel):
  
     def __str__(self) -> str:
         return f"KYC({self.user.username}) [{self.status}]"
+
+
+class UserPhoneCatalog(BaseModel): 
+    
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="phone_catalog_entries",
+        db_index=True,
+    )
+    phone_serial_no = models.CharField(max_length=150)
+    phone_type = models.CharField(max_length=50)   
+    phone_name = models.CharField(max_length=20)
+
+    class Meta:
+        db_table = "accounts_user_phone_catalog"
+        verbose_name = _("user phone catalog")
+        indexes = [
+            models.Index(fields=["phone_name"], name="phone_catalog_name_idx"),
+            models.Index(fields=["user"], name="phone_catalog_user_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"PhoneCatalog({self.phone_serial_no}) -> {self.user.username}"
+    

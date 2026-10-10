@@ -32,10 +32,12 @@ class PostMediaSerializer(serializers.ModelSerializer):
 
 
 class UserSocialSerializer(serializers.ModelSerializer):
+    display_photo = serializers.StringRelatedField(source="profile.display_photo", read_only=True)
+    avatar = serializers.StringRelatedField(source="profile.avatar", read_only=True)
     class Meta:
         model = User
         fields = (
-            "id", "username","is_active"
+            "id", "username","is_active", "display_photo", "avatar"
         )
         read_only_fields = fields
         
