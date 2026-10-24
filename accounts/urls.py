@@ -83,6 +83,9 @@ urlpatterns = [
         views.DeviceTrustView.as_view(),
         name="device-trust",
     ),
+    # follow lists
+    path("me/following/", views.MyFollowingView.as_view(), name="my-following"),
+    path("me/followers/", views.MyFollowersView.as_view(), name="my-followers"),
     # users
     path("users/", views.UserListView.as_view(), name="user-list"),
     path("users/<uuid:user_id>/", views.UserDetailView.as_view(), name="user-detail"),

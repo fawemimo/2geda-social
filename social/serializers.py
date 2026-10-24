@@ -3,7 +3,6 @@ from __future__ import annotations
 from rest_framework import serializers
 
 from accounts.models import Follow, User
-from accounts.serializers import UserMeSerializer
 from social.models import Comment, Like, Post, PostMedia, Reshare, SocialLocation
 from utils.enum import PostVisibility
 
@@ -78,6 +77,7 @@ class PostListSerializer(serializers.ModelSerializer):
     is_liked = serializers.BooleanField(read_only=True)
     reshare_of_detail = serializers.SerializerMethodField()
     location = SocialLocationSerializer(read_only=True)
+    mentions = UserSocialSerializer(many=True, read_only=True)
 
     class Meta:
         model = Post
@@ -86,7 +86,7 @@ class PostListSerializer(serializers.ModelSerializer):
             "attachments", "is_liked",
             "reshare_of", "reshare_of_detail", "reshare_comment",
             "likes_count", "comments_count", "reshares_count",
-            "location", "created_at", "updated_at",
+            "mentions", "location", "created_at", "updated_at",
         ]
 
     def get_reshare_of_detail(self, obj):
@@ -143,6 +143,11 @@ class PostCreateSerializer(MediaIdsValidationMixin, LocationInputMixin):
     media_ids = serializers.ListField(
         child=serializers.UUIDField(), required=False, default=list,
     )
+    mentions = serializers.ListField(
+        child=serializers.CharField(max_length=150),
+        required=False,
+        default=list,
+    )
     reshare_of = serializers.UUIDField(required=False, allow_null=True)
     reshare_comment = serializers.CharField(max_length=500, required=False, allow_blank=True)
     location_label = serializers.CharField(max_length=120, required=False, allow_blank=True)
@@ -153,6 +158,21 @@ class PostCreateSerializer(MediaIdsValidationMixin, LocationInputMixin):
         if not value and not self.initial_data.get("reshare_of"):
             raise serializers.ValidationError("Body is required when not resharing.")
         return value
+
+    def validate_mentions(self, value):
+        if not value:
+            return value
+        usernames = [u.lstrip("@").lower() for u in value]
+        existing = set(
+            User.objects.filter(username__in=usernames)
+            .values_list("username", flat=True)
+        )
+        missing = [u for u in usernames if u not in existing]
+        if missing:
+            raise serializers.ValidationError(
+                f"Users not found: {', '.join(missing)}"
+            )
+        return usernames
 
 
 class PostUpdateSerializer(MediaIdsValidationMixin, LocationInputMixin):
@@ -233,7 +253,7 @@ class ReshareCreateSerializer(LocationInputMixin):
 
 
 class LikeSerializer(serializers.ModelSerializer):
-    user = UserMeSerializer(read_only=True)
+    user = UserSocialSerializer(read_only=True)
 
     class Meta:
         model = Like

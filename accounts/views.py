@@ -25,11 +25,13 @@ from accounts.serializers import (
     ConnectRespondSerializer,
     ConnectUserSerializer,
     DevicePayloadSerializer,
+    FollowListSerializer,
     LoginSerializer,
     LogoutSerializer,
     PasswordChangeSerializer,
     PasswordResetConfirmSerializer,
     PasswordResetRequestSerializer,
+    PendingConnectionSerializer,
     ProfileImageUploadSerializer,
     ProfileUpdateSerializer,
     PushTokenUpdateSerializer,
@@ -917,7 +919,7 @@ class ConnectRespondView(APIView):
 
         return APIResponse.success(
             message=f"Connection response ({data.validated_data['action']}) dispatched successfully.",
-            data={},
+            data={"connection_id": str(connection_id)},
             status_code=status.HTTP_202_ACCEPTED,
         )
 
@@ -925,12 +927,17 @@ class ConnectRespondView(APIView):
 class PendingConnectionsView(APIView):
     permission_classes = [IsAuthenticated]
 
-    @swagger_auto_schema(responses={200: ConnectUserSerializer(many=True)})
+    @swagger_auto_schema(responses={200: PendingConnectionSerializer(many=True)})
     def get(self, request):
         pending_connections = ConnectService().get_pending_connections(request.user)
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(pending_connections, request, view=self)
+        if page is not None:
+            serializer = PendingConnectionSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
         return APIResponse.success(
             message="Pending connections fetched successfully.",
-            data=ConnectUserSerializer(pending_connections, many=True).data,
+            data=PendingConnectionSerializer(pending_connections, many=True).data,
         )
 
 
@@ -963,4 +970,62 @@ class UserLocationUpdateView(APIView):
             message="Location update accepted.",
             data={},
             status_code=status.HTTP_202_ACCEPTED,
+        )
+
+
+class MyFollowingView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from accounts.models import Follow
+
+        qs = (
+            Follow.objects.filter(
+                follower=request.user,
+                status="accepted",
+            )
+            .select_related(
+                "following__profile__avatar",
+            )
+            .order_by("-created_at")
+        )
+        items = [{"user": f.following, "created_at": f.created_at} for f in qs]
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(items, request, view=self)
+        if page is not None:
+            serializer = FollowListSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+        serializer = FollowListSerializer(items, many=True)
+        return APIResponse.success(
+            message="Following list fetched successfully.",
+            data=serializer.data,
+        )
+
+
+class MyFollowersView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from accounts.models import Follow
+
+        qs = (
+            Follow.objects.filter(
+                following=request.user,
+                status="accepted",
+            )
+            .select_related(
+                "follower__profile__avatar",
+            )
+            .order_by("-created_at")
+        )
+        items = [{"user": f.follower, "created_at": f.created_at} for f in qs]
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(items, request, view=self)
+        if page is not None:
+            serializer = FollowListSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+        serializer = FollowListSerializer(items, many=True)
+        return APIResponse.success(
+            message="Followers list fetched successfully.",
+            data=serializer.data,
         )

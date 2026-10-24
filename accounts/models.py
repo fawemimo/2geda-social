@@ -149,7 +149,7 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, PermissionsMixin, AbstractBaseUs
         ]
 
     def __str__(self) -> str:
-        return f"{self.email}>>"
+        return f"{self.username}"
 
     def soft_delete(self):
         self.is_deleted = True
@@ -430,6 +430,11 @@ class UserProfile(BaseModel):
         default=False,
         db_index=True,
         help_text=_("Set by KYC approval."),
+    )
+    verify_badge = models.CharField(
+        blank=True,
+        null=True,
+        max_length=100
     )
  
     # ---- Counters (denormalised for fast reads — updated by signals/tasks) ----

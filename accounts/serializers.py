@@ -207,12 +207,12 @@ class UserProfileSerializer(serializers.ModelSerializer):
         model = UserProfile
         fields = (
             "user", "display_name", "bio", "website", "date_of_birth",
-            "is_private", "is_verified", "followers_count", "following_count",
+            "is_private", "is_verified","verify_badge", "followers_count", "following_count",
             "posts_count", "avatar", "cover_photo",
         )
         read_only_fields = (
             "user", "is_verified", "followers_count", "following_count", "posts_count",
-            "avatar", "cover_photo",
+            "avatar", "cover_photo","verify_badge"
         )
 
 
@@ -291,6 +291,12 @@ class UserListSerializer(serializers.ModelSerializer):
         ]
 
 
+class PendingConnectionSerializer(serializers.Serializer):
+    connection_id = serializers.UUIDField(source="id")
+    user = UserListSerializer(source="requester")
+    created_at = serializers.DateTimeField()
+
+
 class UserDetailSerializer(serializers.ModelSerializer):
     display_name = serializers.CharField(source="profile.display_name", read_only=True, default="")
     first_name = serializers.CharField(source="profile.first_name", read_only=True, default="")
@@ -328,3 +334,12 @@ class UserPhoneCatalogSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserPhoneCatalog
         fields = ["id", "phone_name", "phone_serial_no", "phone_type"]
+
+
+class FollowListSerializer(serializers.Serializer):
+    id = serializers.UUIDField(source="user.id")
+    username = serializers.CharField(source="user.username")
+    display_name = serializers.CharField(source="user.profile.display_name", default="")
+    avatar = serializers.CharField(source="user.profile.avatar.cdn_url", default=None)
+    is_verified = serializers.BooleanField(source="user.profile.is_verified", default=False)
+    followed_at = serializers.DateTimeField(source="created_at")

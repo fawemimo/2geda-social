@@ -2,7 +2,7 @@ from __future__ import annotations
 import logging
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import AllowAny, IsAdminUser, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAdminUser
 from rest_framework.views import APIView
 from advertisements.models import Advertisement
 from advertisements.serializers import (

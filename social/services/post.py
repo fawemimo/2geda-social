@@ -4,7 +4,7 @@ from accounts.models import User
 from social.event_broadcaster import broadcast_post_event
 from social.models import Post, Reshare
 from social.services.location import SocialLocationService
-from social.tasks import broadcast_post_to_followers, notify_followers, process_post_media
+from social.tasks import broadcast_post_to_followers, notify_followers, notify_post_mentions, process_post_media
 from utils.enum import NotificationType
 
 logger = logging.getLogger(__name__)
@@ -20,6 +20,7 @@ class PostService:
         reshare_of_id = validated_data.get("reshare_of")
         reshare_comment = validated_data.get("reshare_comment", "")
         media_ids = validated_data.get("media_ids", [])
+        mention_usernames = validated_data.get("mentions", [])
         location = SocialLocationService.capture(
             latitude=validated_data.get("latitude"),
             longitude=validated_data.get("longitude"),
@@ -34,6 +35,21 @@ class PostService:
             reshare_comment=reshare_comment,
             location=location,
         )
+
+        if mention_usernames:
+            mentioned_users = User.objects.filter(username__in=mention_usernames)
+            post.mentions.set(mentioned_users)
+            mentioned_ids = [str(u.id) for u in mentioned_users if u.id != author.id]
+            if mentioned_ids:
+                transaction.on_commit(
+                    lambda: notify_post_mentions.delay(
+                        post_id=str(post.id),
+                        author_id=str(author.id),
+                        author_username=author.username,
+                        mentioned_user_ids=mentioned_ids,
+                        body_preview=post.body[:200] if post.body else "",
+                    )
+                )
 
         if media_ids:
             media_id_strs = [str(m) for m in media_ids]

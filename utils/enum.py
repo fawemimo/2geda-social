@@ -247,6 +247,8 @@ class NotificationType(Enum):
     NEW_FOLLOWER = "new_follower"  # "Someone followed you")
     FOLLOW_REQUEST = "follow_request"  # "Someone requested to follow you")
     FOLLOW_ACCEPTED = "follow_accepted"  # "Your follow request was accepted")
+    CONNECTION_REQUEST = "connection_request"  # "Someone wants to connect with you"
+    CONNECTION_ACCEPTED = "connection_accepted"  # "Your connection request was accepted"
 
     #  Mention
     MENTION_POST = "mention_post"  # "You were mentioned in a post")

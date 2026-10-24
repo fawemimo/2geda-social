@@ -94,6 +94,13 @@ class Post(BaseModel):
     comments_count = models.PositiveIntegerField(default=0)
     reshares_count = models.PositiveIntegerField(default=0)
 
+    # ----Mentions ----
+    mentions = models.ManyToManyField(
+        User,
+        blank=True,
+        related_name="mentioned_in_posts",
+        help_text=_("Users mentioned in this post"),
+    )
     # ---- Location snapshot (optional) ----
     # Shared snapshot; resolved to an address by a Celery task.
     location = models.ForeignKey(

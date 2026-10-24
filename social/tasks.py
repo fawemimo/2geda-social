@@ -192,6 +192,57 @@ def notify_followers(
 
 
 @shared_task(
+    name="social.tasks.notify_post_mentions",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=3,
+    acks_late=True,
+)
+def notify_post_mentions(
+    post_id: str,
+    author_id: str,
+    author_username: str,
+    mentioned_user_ids: list[str],
+    body_preview: str,
+) -> None:
+    from notifications.services.dto import CreateNotificationDTO
+    from notifications.services.notification_services import NotificationService as NotificationCreator
+    from notifications.tasks import dispatch_notification
+    from utils.enum import NotificationType
+
+    logger.info(
+        "Notifying %d mentioned users for post %s",
+        len(mentioned_user_ids), post_id,
+    )
+
+    source_ct = None
+    try:
+        from django.apps import apps
+        model = apps.get_model("social", "Post")
+        source_ct = ContentType.objects.get_for_model(model)
+    except Exception:
+        logger.warning("Could not resolve content type for Post")
+
+    for user_id in mentioned_user_ids:
+        try:
+            dto = CreateNotificationDTO(
+                recipient_id=user_id,
+                notification_type=NotificationType.MENTION_POST.value,
+                title=f"@{author_username} mentioned you in a post",
+                body=body_preview,
+                actor_id=author_id,
+                source_model=None if source_ct is None else source_ct.model_class(),
+                source_id=post_id if source_ct else "",
+                action_url=f"/posts/{post_id}",
+                priority="normal",
+            )
+            notification = NotificationCreator.create(dto)
+            dispatch_notification.delay(str(notification.id))
+        except Exception:
+            logger.exception("Failed to notify mentioned user %s for post %s", user_id, post_id)
+
+
+@shared_task(
     name="social.tasks.broadcast_post_to_followers",
     autoretry_for=(Exception,),
     retry_backoff=True,

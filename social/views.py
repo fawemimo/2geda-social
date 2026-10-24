@@ -29,6 +29,7 @@ from social.serializers import (
     CommentCreateSerializer,
     CommentSerializer,
     CommentUpdateSerializer,
+    LikeSerializer,
     PostCreateSerializer,
     PostListSerializer,
     PostUpdateSerializer,
@@ -62,7 +63,7 @@ class PostViewSet(viewsets.ModelViewSet):
                 "author",
                 "reshare_of",
             )
-            .prefetch_related("attachments__media")
+            .prefetch_related("attachments__media", "mentions")
             .order_by("-created_at")
         )
         if self.request and self.request.user.is_authenticated:
@@ -380,7 +381,7 @@ class UserPostViewSet(viewsets.ModelViewSet):
                 "author",
                 "reshare_of",
             )
-            .prefetch_related("attachments__media")
+            .prefetch_related("attachments__media", "mentions")
             .order_by("-created_at")
         )
 
@@ -428,3 +429,51 @@ class UnfollowUserView(APIView):
         except (ValidationError, NotFoundError) as exc:
             return APIResponse.error(message=exc.message, status_code=exc.status_code)
         return APIResponse.success(message="Unfollowed successfully.")
+
+
+class PostLikesView(APIView):
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
+    def get(self, request, pk):
+        post_ct = ContentType.objects.get_for_model(Post)
+        qs = (
+            Like.objects.filter(content_type=post_ct, object_id=pk)
+            .select_related("user__profile__avatar", "user__profile__display_photo")
+            .order_by("-created_at")
+        )
+        from utils.pagination import StandardPagination
+
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        if page is not None:
+            serializer = LikeSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+        serializer = LikeSerializer(qs, many=True)
+        return APIResponse.success(
+            message="Post likes fetched successfully.",
+            data=serializer.data,
+        )
+
+
+class CommentLikesView(APIView):
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
+    def get(self, request, post_id, pk):
+        comment_ct = ContentType.objects.get_for_model(Comment)
+        qs = (
+            Like.objects.filter(content_type=comment_ct, object_id=pk)
+            .select_related("user__profile__avatar", "user__profile__display_photo")
+            .order_by("-created_at")
+        )
+        from utils.pagination import StandardPagination
+
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(qs, request, view=self)
+        if page is not None:
+            serializer = LikeSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+        serializer = LikeSerializer(qs, many=True)
+        return APIResponse.success(
+            message="Comment likes fetched successfully.",
+            data=serializer.data,
+        )

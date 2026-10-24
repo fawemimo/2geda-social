@@ -30,9 +30,11 @@ urlpatterns = [
     path("posts/trending/", post_trending, name="post-trending"),
     path("posts/<uuid:pk>/", post_detail, name="post-detail"),
     path("posts/<uuid:pk>/like/", post_like, name="post-like"),
+    path("posts/<uuid:pk>/likes/", views.PostLikesView.as_view(), name="post-likes"),
     path("posts/<uuid:post_id>/comments/", comment_list, name="post-comments"),
     path("posts/<uuid:post_id>/comments/<uuid:pk>/", comment_detail, name="post-comment-detail"),
     path("posts/<uuid:post_id>/comments/<uuid:pk>/like/", comment_like, name="post-comment-like"),
+    path("posts/<uuid:post_id>/comments/<uuid:pk>/likes/", views.CommentLikesView.as_view(), name="post-comment-likes"),
     path(
         "posts/<uuid:post_id>/comments/<uuid:comment_id>/replies/",
         reply_list,

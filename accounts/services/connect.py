@@ -242,18 +242,28 @@ class ConnectService:
         )
 
         send_user_push_notification.delay(
-            user=requester.id,
+            user_id=str(requester.id),
             title="Connection Request Sent",
             body=f"You have sent a connection request to {recipient.username}.",
-            data={"type": "connection_request_sent", "recipient_id": recipient.id},
+            data={"type": "connection_request_sent", "recipient_id": str(recipient.id)},
         )
 
         send_user_push_notification.delay(
-            user=recipient.id,
+            user_id=str(recipient.id),
             title="New Connection Request",
             body=f"{requester.username} wants to connect with you.",
-            data={"type": "connection_request", "requester_id": requester.id},
+            data={"type": "connection_request", "requester_id": str(requester.id)},
         )
+
+        self._create_in_app_notification(
+            recipient=recipient,
+            actor=requester,
+            notification_type="connection_request",
+            title="New Connection Request",
+            body=f"@{requester.username} wants to connect with you.",
+            source_object=connection,
+        )
+
         return connection
 
     def respond_to_connection(
@@ -262,7 +272,7 @@ class ConnectService:
         from accounts.tasks import send_user_push_notification
 
         try:
-            connection = Connection.objects.get(
+            connection = Connection.objects.select_related("requester").get(
                 id=connection_id,
                 recipient=user,
                 status=ConnectionStatus.PENDING.value,
@@ -280,10 +290,19 @@ class ConnectService:
             )
 
             send_user_push_notification.delay(
-                user=connection.requester.id,
+                user_id=str(connection.requester_id),
                 title="Connection Request Accepted",
                 body=f"{user.username} accepted your connection request.",
-                data={"type": "connection_accepted", "recipient_id": user.id},
+                data={"type": "connection_accepted", "recipient_id": str(user.id)},
+            )
+
+            self._create_in_app_notification(
+                recipient=connection.requester,
+                actor=user,
+                notification_type="connection_accepted",
+                title="Connection Request Accepted",
+                body=f"@{user.username} accepted your connection request.",
+                source_object=connection,
             )
         elif action == "reject":
             connection.status = ConnectionStatus.REJECTED.value
@@ -303,15 +322,48 @@ class ConnectService:
         return connection
 
     def get_pending_connections(self, user: User):
-        """Return active users who have sent this user a pending request."""
-        requester_ids = Connection.objects.filter(
-            recipient=user,
-            status=ConnectionStatus.PENDING.value,
-        ).values_list("requester_id", flat=True)
-
-        pending_users = User.objects.filter(
-            id__in=requester_ids,
-            is_active=True,
-            is_deleted=False,
+        """Return pending connection requests sent to this user."""
+        return (
+            Connection.objects.filter(
+                recipient=user,
+                status=ConnectionStatus.PENDING.value,
+                requester__is_active=True,
+                requester__is_deleted=False,
+            )
+            .select_related("requester__profile__avatar")
+            .order_by("-created_at")
         )
-        return self._annotate_location(pending_users)
+
+    @staticmethod
+    def _create_in_app_notification(
+        *,
+        recipient: User,
+        actor: User,
+        notification_type: str,
+        title: str,
+        body: str,
+        source_object,
+    ) -> None:
+        from notifications.services.dto import CreateNotificationDTO
+        from notifications.services.notification_services import (
+            NotificationService as NotificationCreator,
+        )
+        from notifications.tasks import dispatch_notification
+
+        try:
+            dto = CreateNotificationDTO(
+                recipient_id=str(recipient.id),
+                notification_type=notification_type,
+                title=title,
+                body=body,
+                actor_id=str(actor.id),
+                source_model=type(source_object),
+                source_id=str(source_object.pk),
+                priority="normal",
+            )
+            notification = NotificationCreator.create(dto)
+            dispatch_notification.delay(str(notification.id))
+        except Exception:
+            logger.exception(
+                "Failed to create in-app notification for %s", recipient.id
+            )

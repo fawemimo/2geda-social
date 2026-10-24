@@ -43,6 +43,8 @@ NOTIFICATION_CATEGORY_MAP: dict[str, str] = {
     NotificationType.NEW_FOLLOWER.value: NotificationCategory.FOLLOWING.value,
     NotificationType.FOLLOW_REQUEST.value: NotificationCategory.FOLLOWING.value,
     NotificationType.FOLLOW_ACCEPTED.value: NotificationCategory.FOLLOWING.value,
+    NotificationType.CONNECTION_REQUEST.value: NotificationCategory.FOLLOWING.value,
+    NotificationType.CONNECTION_ACCEPTED.value: NotificationCategory.FOLLOWING.value,
     # Mention
     NotificationType.MENTION_POST.value: NotificationCategory.MENTION.value,
     NotificationType.MENTION_COMMENT.value: NotificationCategory.MENTION.value,
