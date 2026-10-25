@@ -32,16 +32,37 @@ class MessageSerializer(serializers.ModelSerializer):
     sender_id = serializers.UUIDField(read_only=True)
     sender_username = serializers.CharField(source="sender.username", read_only=True)
     media_url = serializers.CharField(source="media.cdn_url", read_only=True, default=None)
+    media_id = serializers.UUIDField(read_only=True, default=None)
+    media_type = serializers.CharField(source="media.media_type", read_only=True, default=None)
+    media_filename = serializers.CharField(source="media.original_filename", read_only=True, default=None)
+    media_mime_type = serializers.CharField(source="media.mime_type", read_only=True, default=None)
+    media_size_bytes = serializers.IntegerField(source="media.file_size_bytes", read_only=True, default=None)
+    attachments = serializers.SerializerMethodField()
 
     class Meta:
         model = Message
         fields = [
             "id", "conversation_id", "sender_id", "sender_username",
-            "message_type", "body", "media_url",
+            "message_type", "body", "media_id", "media_url", "media_type",
+            "media_filename", "media_mime_type", "media_size_bytes",
+            "attachments",
             "reply_to_id", "is_edited", "delivery_status",
             "created_at", "is_deleted",
         ]
         read_only_fields = fields
+
+    def get_attachments(self, obj):
+        links = getattr(obj, "prefetched_message_attachments", None)
+        if links is None:
+            links = obj.message_attachments.select_related("media").all()
+        return [{
+            "media_id": str(link.media_id),
+            "media_url": link.media.cdn_url,
+            "media_type": link.media.media_type,
+            "filename": link.media.original_filename,
+            "mime_type": link.media.mime_type,
+            "size_bytes": link.media.file_size_bytes,
+        } for link in links]
 
 
 class ConversationSerializer(serializers.ModelSerializer):

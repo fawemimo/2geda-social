@@ -9,7 +9,8 @@ from django.db.models import F
 from django.utils import timezone
 
 from chats.models import Conversation, ConversationMember, JoinRequest, Message, MessageReaction
-from utils.enum import ConversationType, DeliveryStatus, MemberRole, MessageType, NotificationPriority, NotificationType
+from medias.models import Media
+from utils.enum import ConversationType, DeliveryStatus, MediaType, MemberRole, MessageType, NotificationPriority, NotificationType, ProcessingStatus
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +224,8 @@ class ChatService:
         body: str = "",
         message_type: str = MessageType.TEXT.value,
         reply_to_id: str | None = None,
+        media_id: str | None = None,
+        media_ids: list[str] | None = None,
     ) -> SendMessageResult:
         conv = Conversation.objects.get(pk=conversation_id)
         if conv.is_locked:
@@ -230,13 +233,49 @@ class ChatService:
             if not is_admin:
                 raise PermissionError("This group is locked. Only admins can send messages.")
 
+        if media_ids is not None and not isinstance(media_ids, list):
+            raise ValueError("media_ids must be an array of media IDs.")
+        requested_media_ids = list(media_ids or [])
+        if media_id and not requested_media_ids:
+            requested_media_ids = [media_id]
+        if len(requested_media_ids) != len(set(requested_media_ids)):
+            raise ValueError("Each media ID can only be attached once.")
+        found_media = list(Media.objects.filter(
+            pk__in=requested_media_ids, owner_id=sender_id, is_deleted=False,
+        )) if requested_media_ids else []
+        if len(found_media) != len(requested_media_ids):
+            raise ValueError("One or more media IDs are unknown or not owned by sender.")
+        media_by_id = {str(item.id): item for item in found_media}
+        media_items = [media_by_id[item_id] for item_id in requested_media_ids]
+        if any(item.processing_status != ProcessingStatus.READY.value for item in media_items):
+            raise ValueError("All media uploads must be confirmed before sending.")
+
+        inferred_types = {
+            MediaType.IMAGE.value: MessageType.IMAGE.value,
+            MediaType.GIF.value: MessageType.IMAGE.value,
+            MediaType.VIDEO.value: MessageType.VIDEO.value,
+            MediaType.AUDIO.value: MessageType.AUDIO.value,
+        }
+        if media_items:
+            mapped_types = {inferred_types.get(item.media_type, MessageType.FILE.value) for item in media_items}
+            message_type = mapped_types.pop() if len(mapped_types) == 1 else MessageType.FILE.value
+        else:
+            message_type = message_type or MessageType.TEXT.value
+
         msg = Message.objects.create(
             conversation_id=conversation_id,
             sender_id=sender_id,
             message_type=message_type,
             body=body,
             reply_to_id=reply_to_id,
+            media=media_items[0] if media_items else None,
         )
+        if media_items:
+            from chats.models import MessageAttachment
+            MessageAttachment.objects.bulk_create([
+                MessageAttachment(message=msg, media=item, position=index)
+                for index, item in enumerate(media_items)
+            ])
         preview = body[:200] if body else f"[{message_type}]"
         Conversation.objects.filter(pk=conversation_id).update(
             last_message_at=timezone.now(),
@@ -251,7 +290,9 @@ class ChatService:
             unread_count=F("unread_count") + 1,
         )
 
-        msg = Message.objects.select_related("sender", "conversation").get(pk=msg.pk)
+        msg = Message.objects.select_related("sender", "conversation", "media").prefetch_related(
+            "message_attachments__media"
+        ).get(pk=msg.pk)
         ChatService._dispatch_message_notifications(msg)
         return SendMessageResult(message=msg)
 
@@ -570,7 +611,9 @@ class ChatService:
         qs = Message.objects.filter(
             conversation_id=conversation_id,
             is_deleted=False,
-        ).select_related("sender", "media").order_by("-created_at")
+        ).select_related("sender", "media").prefetch_related(
+            "message_attachments__media"
+        ).order_by("-created_at")
 
         if before:
             qs = qs.filter(created_at__lt=before)

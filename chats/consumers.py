@@ -220,6 +220,9 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
         conversation_id = content.get("conversation_id")
         body = content.get("body", "")
         reply_to_id = content.get("reply_to_id")
+        media_id = content.get("media_id")
+        media_ids = content.get("media_ids")
+        message_type = content.get("message_type")
 
         if not conversation_id:
             return await self._error("missing_conversation_id", request_id=content.get("request_id"))
@@ -243,11 +246,16 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
                 conversation_id=conversation_id,
                 body=body,
                 reply_to_id=reply_to_id,
+                media_id=media_id,
+                media_ids=media_ids,
+                message_type=message_type,
             )
         except (Conversation.DoesNotExist, ValidationError):
             return await self._error("conversation_not_found", request_id=content.get("request_id"))
         except PermissionError as exc:
             return await self._error("not_allowed", str(exc), request_id=content.get("request_id"))
+        except ValueError as exc:
+            return await self._error("invalid_media", str(exc), request_id=content.get("request_id"))
 
         payload["type"] = "new_message"
 
@@ -916,13 +924,18 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
         return MessageSerializer(msgs, many=True).data
 
     @database_sync_to_async
-    def _send_message(self, conversation_id: str, body: str, reply_to_id: str | None):
+    def _send_message(self, conversation_id: str, body: str, reply_to_id: str | None,
+                      media_id: str | None = None, media_ids: list[str] | None = None,
+                      message_type: str | None = None):
         service = ChatService()
         result = service.send_message(
             conversation_id=conversation_id,
             sender_id=str(self.user.id),
             body=body,
             reply_to_id=reply_to_id,
+            media_id=media_id,
+            media_ids=media_ids,
+            message_type=message_type,
         )
         return result.message.to_event_payload()
 

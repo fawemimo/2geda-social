@@ -188,6 +188,12 @@ class Message(BaseModel):
         on_delete=models.SET_NULL,
         related_name="chat_messages",
     )
+    attachments = models.ManyToManyField(
+        Media,
+        through="MessageAttachment",
+        related_name="attached_chat_messages",
+        blank=True,
+    )
 
     # Location payload (for MessageType.LOCATION)
     latitude  = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
@@ -250,6 +256,7 @@ class Message(BaseModel):
     def soft_delete(self, deleted_by_id=None):
         self.body  = ""
         self.media = None
+        self.attachments.clear()
         self.is_deleted = True
         self.deleted_at = timezone.now()
         if deleted_by_id:
@@ -257,6 +264,9 @@ class Message(BaseModel):
         self.save(update_fields=["body", "media", "is_deleted", "deleted_at", "deleted_by"])
 
     def to_event_payload(self) -> dict:
+        media_items = [link.media for link in self.message_attachments.select_related("media").all()]
+        if not media_items and self.media_id:
+            media_items = [self.media]
         return {
             "id":             str(self.id),
             "conversation_id": str(self.conversation_id),
@@ -266,6 +276,19 @@ class Message(BaseModel):
             "body":           self.body,
             "reply_to_id":    str(self.reply_to_id) if self.reply_to_id else None,
             "media_url":      self.media.cdn_url if self.media else None,
+            "media_id":       str(self.media_id) if self.media_id else None,
+            "media_type":     self.media.media_type if self.media else None,
+            "media_filename": self.media.original_filename if self.media else None,
+            "media_mime_type": self.media.mime_type if self.media else None,
+            "media_size_bytes": self.media.file_size_bytes if self.media else None,
+            "attachments": [{
+                "media_id": str(item.id),
+                "media_url": item.cdn_url,
+                "media_type": item.media_type,
+                "filename": item.original_filename,
+                "mime_type": item.mime_type,
+                "size_bytes": item.file_size_bytes,
+            } for item in media_items],
             "is_edited":      self.is_edited,
             "delivery_status": self.delivery_status,
             "created_at":     self.created_at.isoformat(),
@@ -275,6 +298,20 @@ class Message(BaseModel):
 
     def __str__(self) -> str:
         return f"Message({self.sender.username} → conv:{self.conversation_id})"
+
+
+class MessageAttachment(UUIDPrimaryKeyMixin, TimestampMixin):
+    message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name="message_attachments")
+    media = models.ForeignKey(Media, on_delete=models.CASCADE, related_name="message_attachments")
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = "chat_message_attachment"
+        ordering = ["position", "created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["message", "media"], name="msg_attach_unique_media"),
+            models.UniqueConstraint(fields=["message", "position"], name="msg_attach_unique_position"),
+        ]
 
 # Emoji reaction on a message.
 

@@ -216,6 +216,48 @@ Join a conversation group on the channel layer (listen for its events).
 
 ## Messaging
 
+### Sending media
+
+To send one or more media files, prepare each file through the existing media API:
+
+1. For each file, request an upload URL with `POST /api/v2/medias/presigned-url/`:
+
+   ```json
+   { "file_name": "photo.jpg" }
+   ```
+
+   The response includes `url`, `headers`, and `media_id`.
+2. Upload the file bytes to the returned URL using its `headers` and HTTP method.
+3. `POST /api/v2/medias/{media_id}/confirm-upload/` after S3 accepts the upload.
+4. Send one `send_message` WebSocket command with all confirmed IDs in `media_ids`.
+
+Repeat steps 1–3 for each file. A send request can include text, multiple images,
+audio, video, or documents. The server checks that every media item belongs to
+the sender and is confirmed before creating the message. The message type is
+inferred when all attachments have the same type; mixed media uses `file`.
+
+```json
+{
+  "type": "send_message",
+  "request_id": "req-media-1",
+  "conversation_id": "7d2d7f84-c0df-42e2-a278-31f4dfdc19ef",
+  "body": "Take a look",
+  "media_ids": [
+    "<confirmed-image-media-uuid>",
+    "<confirmed-video-media-uuid>",
+    "<confirmed-document-media-uuid>"
+  ],
+  "reply_to_id": null
+}
+```
+
+The `new_message` broadcast includes an ordered `attachments` array. Each entry
+contains `media_id`, `media_url`, `media_type`, `filename`, `mime_type`, and
+`size_bytes`. The first attachment is also exposed in the legacy `media_*` fields
+for clients that still display a single media item. Empty `media_ids` sends a
+text-only message. An unknown, duplicate, unowned, or unconfirmed ID returns an
+`invalid_media` error and no message is sent.
+
 ### `get_messages`
 
 Fetch message history for a conversation (paginated by `before` cursor).
