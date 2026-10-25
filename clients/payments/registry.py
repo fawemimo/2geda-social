@@ -59,6 +59,11 @@ def _register_builtins() -> None:
 
         return FlutterwaveProvider()
 
+    def _interswitch() -> PaymentProvider:
+        from clients.payments.providers.interswitch import InterswitchProvider
+
+        return InterswitchProvider()
+
     def _memory() -> PaymentProvider:
         from clients.payments.providers.local import MemoryProvider
 
@@ -67,6 +72,7 @@ def _register_builtins() -> None:
     for key, factory in (
         ("paystack", _paystack),
         ("flutterwave", _flutterwave),
+        ("interswitch", _interswitch),
         ("memory", _memory),
     ):
         _REGISTRY.setdefault(key, factory)

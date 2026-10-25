@@ -24,3 +24,11 @@ def generate_transaction_reference() -> str:
 
 def generate_payout_reference() -> str:
     return "PO-" + secrets.token_hex(8).upper()
+
+
+def generate_vote_payment_reference() -> str:
+    return "VP-" + str(uuid.uuid4()).replace("-", "").upper()[:20]
+
+
+def generate_poll_payout_reference() -> str:
+    return "PPO-" + secrets.token_hex(8).upper()

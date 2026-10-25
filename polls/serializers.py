@@ -4,7 +4,7 @@ from rest_framework import serializers
 
 from accounts.models import User
 from polls.enums import PollType
-from polls.models import Poll, PollOption, Vote
+from polls.models import Poll, PollOption, PollPayout, Vote, VotePayment
 
 
 class PollOptionSerializer(serializers.ModelSerializer):
@@ -33,7 +33,7 @@ class VoteSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Vote
-        fields = ["id", "voter", "option_id", "option_text", "created_at"]
+        fields = ["id", "voter", "option_id", "option_text", "is_paid", "created_at"]
 
 
 class PollListSerializer(serializers.ModelSerializer):
@@ -51,6 +51,7 @@ class PollListSerializer(serializers.ModelSerializer):
         fields = [
             "id", "author", "author_username", "question", "poll_type", "status",
             "starts_at", "ends_at", "media_url", "media_type",
+            "is_paid_voting", "vote_price",
             "show_results", "show_voters", "show_vote_counts", "show_view_counts",
             "total_votes", "total_views", "options_count",
             "is_active", "is_expired", "has_voted",
@@ -93,6 +94,10 @@ class PollCreateSerializer(serializers.Serializer):
     )
     ends_at = serializers.DateTimeField(required=False, allow_null=True)
     media_id = serializers.UUIDField(required=False, allow_null=True)
+    is_paid_voting = serializers.BooleanField(default=False, required=False)
+    vote_price = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False, default=0,
+    )
     show_results = serializers.BooleanField(default=True, required=False)
     show_voters = serializers.BooleanField(default=False, required=False)
     show_vote_counts = serializers.BooleanField(default=True, required=False)
@@ -101,6 +106,13 @@ class PollCreateSerializer(serializers.Serializer):
         child=serializers.CharField(max_length=500),
         min_length=2,
     )
+
+    def validate(self, attrs):
+        if attrs.get("is_paid_voting") and (not attrs.get("vote_price") or attrs["vote_price"] <= 0):
+            raise serializers.ValidationError(
+                {"vote_price": "vote_price must be greater than 0 for paid voting."}
+            )
+        return attrs
 
 
 class PollUpdateSerializer(serializers.Serializer):
@@ -111,6 +123,10 @@ class PollUpdateSerializer(serializers.Serializer):
     )
     ends_at = serializers.DateTimeField(required=False, allow_null=True)
     media_id = serializers.UUIDField(required=False, allow_null=True)
+    is_paid_voting = serializers.BooleanField(required=False)
+    vote_price = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False,
+    )
     show_results = serializers.BooleanField(required=False)
     show_voters = serializers.BooleanField(required=False)
     show_vote_counts = serializers.BooleanField(required=False)
@@ -149,3 +165,45 @@ class PollResultSerializer(serializers.ModelSerializer):
             )
             return VoteSerializer(votes, many=True).data
         return []
+
+
+class InitializeVotePaymentSerializer(serializers.Serializer):
+    option_id = serializers.UUIDField()
+    quantity = serializers.IntegerField(default=1, min_value=1)
+
+
+class VerifyVotePaymentSerializer(serializers.Serializer):
+    reference = serializers.CharField(max_length=64)
+
+
+class VotePaymentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = VotePayment
+        fields = [
+            "id", "reference", "quantity", "amount", "service_charge", "net_amount",
+            "currency", "status", "authorization_url", "created_at",
+        ]
+
+
+class PollPayoutSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = PollPayout
+        fields = [
+            "id", "payout_ref", "total_paid_votes", "gross_amount",
+            "service_charge_total", "net_amount", "currency", "status", "paid_at",
+            "created_at",
+        ]
+
+
+class PollAnalyticsSerializer(serializers.Serializer):
+    poll_id = serializers.UUIDField()
+    question = serializers.CharField()
+    total_votes = serializers.IntegerField()
+    total_free_votes = serializers.IntegerField()
+    total_paid_votes = serializers.IntegerField()
+    vote_price = serializers.DecimalField(max_digits=12, decimal_places=2)
+    gross_revenue = serializers.DecimalField(max_digits=15, decimal_places=2)
+    service_charge_percent = serializers.DecimalField(max_digits=5, decimal_places=2)
+    total_service_charge = serializers.DecimalField(max_digits=15, decimal_places=2)
+    net_remittance = serializers.DecimalField(max_digits=15, decimal_places=2)
+    payout = PollPayoutSerializer(allow_null=True)

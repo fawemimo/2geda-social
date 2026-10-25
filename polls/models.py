@@ -1,11 +1,15 @@
+from decimal import Decimal
+
 from django.contrib.postgres.indexes import BrinIndex
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from accounts.models import User
-from utils.enum import PollStatus, PollType
+from utils.enum import PaymentStatus, PollStatus, PollType
 from utils.models import BaseModel, TimestampMixin, UUIDPrimaryKeyMixin
+
+SERVICE_CHARGE_PERCENT = Decimal("0.02")
 
 
 class Poll(BaseModel):
@@ -39,6 +43,18 @@ class Poll(BaseModel):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="polls",
+    )
+
+    # ---- Paid voting ----
+    is_paid_voting = models.BooleanField(
+        default=False,
+        help_text=_("Whether voters must pay to vote on this poll."),
+    )
+    vote_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text=_("Price per vote in major currency units (e.g. NGN)."),
     )
 
     # ---- Results visibility preferences ----
@@ -145,6 +161,14 @@ class Vote(UUIDPrimaryKeyMixin, TimestampMixin):
         related_name="poll_votes",
         db_index=True,
     )
+    is_paid = models.BooleanField(default=False)
+    payment = models.ForeignKey(
+        "VotePayment",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="votes",
+    )
 
     class Meta:
         db_table = "polls_vote"
@@ -189,3 +213,93 @@ class PollView(UUIDPrimaryKeyMixin, TimestampMixin):
 
     def __str__(self) -> str:
         return f"View({self.viewer or self.ip_address}) on Poll:{self.poll_id}"
+
+
+class VotePayment(UUIDPrimaryKeyMixin, TimestampMixin):
+    poll = models.ForeignKey(
+        Poll,
+        on_delete=models.CASCADE,
+        related_name="vote_payments",
+        db_index=True,
+    )
+    voter = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="vote_payments",
+        db_index=True,
+    )
+    option = models.ForeignKey(
+        PollOption,
+        on_delete=models.CASCADE,
+        related_name="vote_payments",
+        db_index=True,
+    )
+    quantity = models.PositiveIntegerField(default=1)
+
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    service_charge = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    net_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    currency = models.CharField(max_length=3, default="NGN")
+
+    reference = models.CharField(max_length=64, unique=True, db_index=True)
+    authorization_url = models.URLField(blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=PaymentStatus.choices(),
+        default=PaymentStatus.PENDING.value,
+        db_index=True,
+    )
+    provider_data = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "polls_vote_payment"
+        verbose_name = _("vote payment")
+        indexes = [
+            models.Index(fields=["poll", "voter"], name="vpay_poll_voter_idx"),
+            models.Index(fields=["reference"], name="vpay_reference_idx"),
+            models.Index(fields=["status", "-created_at"], name="vpay_status_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"VotePayment({self.reference}) — {self.status}"
+
+
+class PollPayout(UUIDPrimaryKeyMixin, TimestampMixin):
+    poll = models.ForeignKey(
+        Poll,
+        on_delete=models.CASCADE,
+        related_name="payouts",
+        db_index=True,
+    )
+    author = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="poll_payouts",
+        db_index=True,
+    )
+
+    total_paid_votes = models.PositiveIntegerField(default=0)
+    gross_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    service_charge_total = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    net_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    currency = models.CharField(max_length=3, default="NGN")
+
+    status = models.CharField(
+        max_length=20,
+        choices=PaymentStatus.choices(),
+        default=PaymentStatus.PENDING.value,
+        db_index=True,
+    )
+    payout_ref = models.CharField(max_length=32, unique=True, db_index=True)
+    paid_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "polls_payout"
+        verbose_name = _("poll payout")
+        indexes = [
+            models.Index(fields=["poll", "status"], name="ppayout_poll_status_idx"),
+            models.Index(fields=["author", "-created_at"], name="ppayout_author_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"PollPayout({self.payout_ref}) — {self.poll.question[:30]}"

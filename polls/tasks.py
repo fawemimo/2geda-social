@@ -48,5 +48,44 @@ def close_expired_polls() -> dict:
                 "poll_id": str(poll.pk),
             })
 
+    for poll_id in poll_ids:
+        process_poll_payout.delay(str(poll_id))
+
     logger.info("Successfully closed %d expired poll(s).", total)
     return {"closed_count": total}
+
+
+@shared_task(
+    name="polls.tasks.process_poll_payout",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=3,
+    acks_late=True,
+)
+def process_poll_payout(poll_id: str) -> dict:
+    from polls.models import Poll
+    from polls.services.poll_service import PollService
+
+    try:
+        poll = Poll.objects.get(pk=poll_id)
+    except Poll.DoesNotExist:
+        logger.warning("Poll %s not found for payout processing.", poll_id)
+        return {"status": "not_found"}
+
+    if not poll.is_paid_voting:
+        return {"status": "skipped", "reason": "not_paid_voting"}
+
+    payout = PollService.process_poll_payout(poll)
+    if payout is None:
+        return {"status": "skipped", "reason": "no_paid_votes_or_already_processed"}
+
+    logger.info(
+        "Payout %s created for poll %s: gross=%s, charge=%s, net=%s",
+        payout.payout_ref, poll_id,
+        payout.gross_amount, payout.service_charge_total, payout.net_amount,
+    )
+    return {
+        "status": "created",
+        "payout_ref": payout.payout_ref,
+        "net_amount": str(payout.net_amount),
+    }

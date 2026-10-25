@@ -8,15 +8,20 @@ from rest_framework.viewsets import ModelViewSet
 from accounts.services.exceptions import ServiceError
 from polls.models import Poll
 from polls.serializers import (
+    InitializeVotePaymentSerializer,
+    PollAnalyticsSerializer,
     PollCreateSerializer,
     PollDetailSerializer,
     PollListSerializer,
     PollResultSerializer,
     PollUpdateSerializer,
+    VerifyVotePaymentSerializer,
     VoteCreateSerializer,
+    VotePaymentSerializer,
 )
 from polls.services import PollService
 from polls.services.broadcaster import broadcast_poll_event
+from polls.tasks import process_poll_payout
 from utils.pagination import StandardPagination
 from utils.responses import APIResponse
 
@@ -110,6 +115,11 @@ class PollViewSet(ModelViewSet):
             return APIResponse.error(message="You cannot vote on your own poll.", status_code=403)
         if poll.is_expired:
             return APIResponse.error(message="This poll has expired.", status_code=400)
+        if poll.is_paid_voting:
+            return APIResponse.error(
+                message="This is a paid poll. Use the /vote/pay/ endpoint to initialize payment first.",
+                status_code=400,
+            )
 
         serializer = VoteCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -174,6 +184,9 @@ class PollViewSet(ModelViewSet):
             "event": "poll.closed",
             "poll_id": str(poll.id),
         })
+        if poll.is_paid_voting:
+            from django.db import transaction as db_transaction
+            db_transaction.on_commit(lambda: process_poll_payout.delay(str(poll.id)))
         return APIResponse.success(
             message="Poll closed successfully.",
             data=PollDetailSerializer(poll, context={"request": request}).data,
@@ -187,4 +200,75 @@ class PollViewSet(ModelViewSet):
                 message="Results are not publicly available for this poll.", status_code=403,
             )
         serializer = self.get_serializer(instance, context={"request": request})
+        return APIResponse.success(data=serializer.data)
+
+    @action(detail=True, methods=["post"], url_path="vote/pay")
+    def initialize_vote_payment(self, request, pk=None):
+        poll = self.get_object()
+        if poll.author == request.user:
+            return APIResponse.error(message="You cannot vote on your own poll.", status_code=403)
+        if not poll.is_paid_voting:
+            return APIResponse.error(message="This poll does not require payment.", status_code=400)
+
+        serializer = InitializeVotePaymentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            payment = PollService.initialize_vote_payment(
+                poll=poll,
+                option_id=str(serializer.validated_data["option_id"]),
+                voter=request.user,
+                quantity=serializer.validated_data.get("quantity", 1),
+            )
+            return APIResponse.success(
+                message="Payment initialized. Complete payment to cast your vote(s).",
+                data=VotePaymentSerializer(payment).data,
+                status_code=status.HTTP_201_CREATED,
+            )
+        except ServiceError as e:
+            return APIResponse.error(message=e.message, status_code=e.status_code)
+
+    @action(detail=True, methods=["post"], url_path="vote/confirm")
+    def verify_vote_payment(self, request, pk=None):
+        poll = self.get_object()
+        serializer = VerifyVotePaymentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            votes = PollService.verify_vote_payment(
+                reference=serializer.validated_data["reference"],
+                voter=request.user,
+            )
+            poll.refresh_from_db()
+            options_data = PollService.get_options_data(poll)
+            first_vote = votes[0]
+            broadcast_poll_event(str(poll.id), {
+                "event": "vote.update",
+                "poll_id": str(poll.id),
+                "option_id": str(first_vote.option_id),
+                "voter_id": str(request.user.id),
+                "vote_count": len(votes),
+                "options": options_data,
+                "total_votes": poll.total_votes,
+            })
+            return APIResponse.success(
+                message=f"Payment verified and {len(votes)} vote(s) cast successfully.",
+                data={
+                    "option_id": str(first_vote.option_id),
+                    "votes_cast": len(votes),
+                    "created_at": first_vote.created_at,
+                },
+            )
+        except ServiceError as e:
+            return APIResponse.error(message=e.message, status_code=e.status_code)
+
+    @action(detail=True, methods=["get"])
+    def analytics(self, request, pk=None):
+        instance = self.get_object()
+        if instance.author != request.user:
+            return APIResponse.error(
+                message="Only the poll author can view analytics.", status_code=403,
+            )
+        data = PollService.get_poll_analytics(poll=instance)
+        serializer = PollAnalyticsSerializer(data)
         return APIResponse.success(data=serializer.data)
