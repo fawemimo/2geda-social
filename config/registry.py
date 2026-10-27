@@ -103,6 +103,9 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("EBULKSMS_APIKEY", CATEGORY_MESSAGING, "string", "",
                 "EBulkSMS API key.", env_only=True),
 
+    # - Notification
+    SettingSpec("PUSH_NOTIFICATION_PROVIDER", CATEGORY_MESSAGING, "string","expo"),
+    
     # - Storage 
     SettingSpec("STORAGE_PROVIDER", CATEGORY_STORAGE, "string", "s3",
                 "Backend that owns uploaded files: s3 | azure | memory.",
@@ -163,6 +166,7 @@ SPECS: tuple[SettingSpec, ...] = (
     SettingSpec("GOOGLE_MAPS_API_KEY", CATEGORY_INTEGRATIONS, "string", "",
                 "Google Maps API key.", env_only=True),
     SettingSpec("FIREBASE_PROJECT_ID", CATEGORY_INTEGRATIONS, "string", ""),
+    SettingSpec("PUSH_NOTIFICATION_PROVIDER", CATEGORY_INTEGRATIONS, "string", "firebase"),
 )
 
 REGISTRY: dict[str, SettingSpec] = {spec.key: spec for spec in SPECS}

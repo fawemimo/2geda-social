@@ -301,6 +301,7 @@ class ChatService:
         from notifications.services.dto import CreateNotificationDTO
         from notifications.services.notification_services import NotificationService as NotificationCreator
         from notifications.tasks import dispatch_notification
+        from accounts.tasks import send_chat_push_notification
 
         sender = msg.sender
         preview = msg.body[:200] if msg.body else f"[{msg.message_type}]"
@@ -330,6 +331,20 @@ class ChatService:
                 dispatch_notification.delay(str(notification.id))
             except Exception:
                 logger.exception("Failed to dispatch message notification to %s", member.user_id)
+
+            # Send push notification for chat message
+            try:
+                sender_name = sender.username if sender and sender.username else "Someone"
+                message_body = preview
+                send_chat_push_notification.delay(
+                    user_id=str(member.user_id),
+                    sender_name=sender_name,
+                    message=message_body,
+                    conversation_id=str(msg.conversation_id),
+                    chat_id=str(msg.conversation_id),
+                )
+            except Exception:
+                logger.exception("Failed to dispatch chat push notification to %s", member.user_id)
 
     @staticmethod
     @transaction.atomic

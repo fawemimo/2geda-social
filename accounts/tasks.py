@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from accounts.services.interfaces import NotificationPayload
 from accounts.services.notifications import EmailNotificationSender
+from clients.expo.notifications import ExpoNotificationAPI
 from config import get_int
 
 logger = logging.getLogger(__name__)
@@ -252,7 +253,7 @@ def send_user_push_notification(
 ) -> None:
     from accounts.models import User
     from accounts.services.device import DeviceService
-    from clients.google.firebase import FireBasePushAPI
+    from clients.push.services import PushNotificationService
 
     try:
         user = User.objects.get(pk=user_id)
@@ -264,12 +265,10 @@ def send_user_push_notification(
     if not tokens:
         return
 
-    firebase = FireBasePushAPI()
-    for token in tokens:
-        try:
-            firebase.send_notification(token, title, body, data=data)
-        except Exception:
-            logger.exception("Failed to send push to token for user %s", user_id)
+    try:
+        PushNotificationService.send_bulk_notification(tokens, title, body, data=data)
+    except Exception:
+        logger.exception("Failed to send push to tokens for user %s", user_id)
 
 
 # Delete an old/replaced profile image from S3 + DB and notify the user.
@@ -505,3 +504,41 @@ def process_referral_reward(*, referral_code: str, referred_user_id: str) -> Non
         source=referred_user,
         auto_claim=True,
     )
+
+
+@shared_task(
+    name="accounts.tasks.send_chat_push_notification",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=3,
+    acks_late=True,
+)
+def send_chat_push_notification(
+    *, user_id: str, sender_name: str, message: str, conversation_id: str, chat_id: str = None
+) -> None:
+    from accounts.models import User
+    from accounts.services.device import DeviceService
+    from clients.push.services import PushNotificationService
+
+    try:
+        user = User.objects.get(pk=user_id)
+    except User.DoesNotExist:
+        logger.exception("User %s not found for chat push notification", user_id)
+        return
+
+    tokens = DeviceService.get_trusted_push_tokens(user)
+    if not tokens:
+        return
+
+    title = f"New message from {sender_name}"
+    body = message[:200] if message else "Sent a message"
+    data = {
+        "type": "chat_message",
+        "conversation_id": str(conversation_id),
+        "chat_id": str(chat_id) if chat_id else str(conversation_id),
+    }
+
+    try:
+        PushNotificationService.send_bulk_notification(tokens, title, body, data=data)
+    except Exception:
+        logger.exception("Failed to send chat push to tokens for user %s", user_id)

@@ -26,6 +26,7 @@ app.conf.task_routes = {
     "accounts.tasks.send_otp_message": {"queue": "otp"},
     "accounts.tasks.send_welcome_email": {"queue": "notifications"},
     "accounts.tasks.send_user_push_notification": {"queue": "notifications"},
+    "accounts.tasks.send_chat_push_notification": {"queue": "notifications"},
     "accounts.tasks.cleanup_old_profile_image": {"queue": "media"},
     # Image decode/resize is CPU-bound — keep it off the queues that carry
     # latency-sensitive OTP and notification work.
