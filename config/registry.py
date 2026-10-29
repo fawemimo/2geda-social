@@ -128,7 +128,7 @@ SPECS: tuple[SettingSpec, ...] = (
 
     # - Payments --
     SettingSpec("PAYMENT_PROVIDER", CATEGORY_PAYMENTS, "string", "paystack",
-                "Live gateway: paystack | flutterwave | memory. Only one at a time."),
+                "Live gateway: paystack | flutterwave | interswitch | memory. Only one at a time."),
     SettingSpec("PAYSTACK_CALLBACK_URL", CATEGORY_PAYMENTS, "string", ""),
     SettingSpec("PAYSTACK_PUBLIC_KEY", CATEGORY_PAYMENTS, "string", "",
                 "Publishable key — safe to expose to clients."),

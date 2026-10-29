@@ -6,7 +6,7 @@ from notifications.services.dto import CreateNotificationDTO
 from notifications.tasks import dispatch_notification
 from social.event_broadcaster import broadcast_post_event, broadcast_trending_event
 from social.models import Comment, Post
-from social.tasks import notify_followers
+from social.tasks import notify_followers, process_comment_media
 from utils.enum import NotificationPriority, NotificationType
 from notifications.services.notification_services import NotificationService as NotificationCreator
 from social.services.location import SocialLocationService
@@ -31,17 +31,26 @@ class CommentService:
             except Comment.DoesNotExist:
                 raise ValidationError("Parent comment not found or is a reply.")
 
+        media_ids = validated_data.get("media_ids", []) or []
+        body = validated_data.get("body", "") or ""
+
         comment = Comment.objects.create(
             post=post,
             author=author,
             parent_id=parent_id,
-            body=validated_data["body"],
+            body=body,
             location=SocialLocationService.capture(
                 latitude=validated_data.get("latitude"),
                 longitude=validated_data.get("longitude"),
                 label=validated_data.get("location_label", ""),
             ),
         )
+
+        if media_ids:
+            media_id_strs = [str(m) for m in media_ids]
+            transaction.on_commit(
+                lambda ids=media_id_strs: process_comment_media.delay(str(comment.id), ids)
+            )
 
         post.refresh_from_db()
 
@@ -80,9 +89,26 @@ class CommentService:
 
     @staticmethod
     @transaction.atomic
-    def update(*, instance: Comment, body: str) -> Comment:
-        instance.body = body
-        instance.save(update_fields=["body"])
+    def update(*, instance: Comment, body: str = None, validated_data: dict = None) -> Comment:
+        if validated_data is None and body is not None:
+            validated_data = {"body": body}
+        if validated_data is None:
+            validated_data = {}
+
+        if "body" in validated_data and validated_data["body"] is not None:
+            instance.body = validated_data["body"]
+            instance.save(update_fields=["body"])
+
+        media_ids = validated_data.get("media_ids")
+        if media_ids is not None:
+            old_ids = {str(pk) for pk in instance.attachments.values_list("media_id", flat=True)}
+            new_ids = [str(m) for m in media_ids]
+            if set(new_ids) != old_ids:
+                instance.attachments.all().delete()
+                transaction.on_commit(
+                    lambda ids=new_ids: process_comment_media.delay(str(instance.id), ids)
+                )
+
         return instance
 
     @staticmethod

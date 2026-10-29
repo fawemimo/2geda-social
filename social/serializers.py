@@ -3,7 +3,7 @@ from __future__ import annotations
 from rest_framework import serializers
 
 from accounts.models import Follow, User
-from social.models import Comment, Like, Post, PostMedia, Reshare, SocialLocation
+from social.models import Comment, CommentMedia, Like, Post, PostMedia, Reshare, SocialLocation
 from utils.enum import PostVisibility
 
 
@@ -27,6 +27,15 @@ class PostMediaSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PostMedia
+        fields = ["id", "cdn_url", "media_type", "position"]
+
+
+class CommentMediaSerializer(serializers.ModelSerializer):
+    cdn_url = serializers.CharField(source="media.cdn_url", read_only=True, allow_null=True)
+    media_type = serializers.CharField(source="media.media_type", read_only=True, allow_null=True)
+
+    class Meta:
+        model = CommentMedia
         fields = ["id", "cdn_url", "media_type", "position"]
 
 
@@ -191,6 +200,7 @@ class CommentSerializer(serializers.ModelSerializer):
     is_liked = serializers.SerializerMethodField()
     replies = serializers.SerializerMethodField()
     location = SocialLocationSerializer(read_only=True)
+    attachments = serializers.SerializerMethodField()
 
     class Meta:
         model = Comment
@@ -198,8 +208,18 @@ class CommentSerializer(serializers.ModelSerializer):
             "id", "post", "author", "parent", "body",
             "likes_count", "replies_count",
             "is_liked", "replies", "location",
+            "attachments",
             "created_at", "updated_at",
         ]
+
+    def get_attachments(self, obj):
+        attachments = getattr(obj, "attachments", None)
+        if attachments is None:
+            try:
+                attachments = obj.attachments.all()
+            except Exception:
+                return []
+        return CommentMediaSerializer(attachments, many=True).data
 
     def get_is_liked(self, obj) -> bool:
         request = self.context.get("request")
@@ -214,13 +234,27 @@ class CommentSerializer(serializers.ModelSerializer):
         return CommentSerializer(replies, many=True, context=self.context).data
 
 
-class CommentCreateSerializer(LocationInputMixin):
-    body = serializers.CharField(max_length=1000)
+class CommentCreateSerializer(MediaIdsValidationMixin, LocationInputMixin):
+    body = serializers.CharField(max_length=1000, required=False, allow_blank=True)
     parent_id = serializers.UUIDField(required=False, allow_null=True)
+    media_ids = serializers.ListField(
+        child=serializers.UUIDField(), required=False, default=list,
+    )
+
+    def validate_body(self, value):
+        if not value and not self.initial_data.get("parent_id"):
+            # Allow empty body only in some cases? But we need to allow media-only comments
+            if not self.initial_data.get("media_ids"):
+                raise serializers.ValidationError("Body is required.")
+        elif not value and self.initial_data.get("media_ids"):
+            pass
+        return value
 
 
-class CommentUpdateSerializer(serializers.Serializer):
-    body = serializers.CharField(max_length=1000)
+
+class CommentUpdateSerializer(MediaIdsValidationMixin, serializers.Serializer):
+    body = serializers.CharField(max_length=1000, required=False, allow_blank=True)
+    media_ids = serializers.ListField(child=serializers.UUIDField(), required=False)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

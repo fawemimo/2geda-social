@@ -106,6 +106,59 @@ def process_post_media(post_id: str, media_ids: list[str]) -> dict:
 
 
 @shared_task(
+    name="social.tasks.process_comment_media",
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=3,
+    acks_late=True,
+)
+def process_comment_media(comment_id: str, media_ids: list[str]) -> dict:
+
+    from django.db import transaction as db_transaction
+
+    from medias.models import Media
+    from social.models import Comment, CommentMedia
+
+    if not media_ids:
+        return {"attached": 0, "skipped": []}
+
+    comment = Comment.objects.filter(pk=comment_id).only("pk", "author_id").first()
+    if comment is None:
+        logger.warning("Comment %s not found; nothing to attach", comment_id)
+        return {"attached": 0, "skipped": [str(m) for m in media_ids]}
+
+    owned = {
+        str(pk): pk
+        for pk in Media.objects.filter(
+            pk__in=media_ids, owner_id=comment.author_id, is_deleted=False
+        ).values_list("pk", flat=True)
+    }
+
+    rows, skipped = [], []
+    for position, media_id in enumerate(media_ids):
+        key = str(media_id)
+        if key not in owned:
+            skipped.append(key)
+            continue
+        rows.append(CommentMedia(comment_id=comment.pk, media_id=owned[key], position=position))
+
+    if skipped:
+        logger.warning(
+            "Comment %s: %d media id(s) skipped (missing, deleted, or not owned by the author)",
+            comment_id, len(skipped),
+        )
+
+    if not rows:
+        return {"attached": 0, "skipped": skipped}
+
+    with db_transaction.atomic():
+        CommentMedia.objects.bulk_create(rows, ignore_conflicts=True)
+
+    logger.info("Comment %s: attached %d media", comment_id, len(rows))
+    return {"attached": len(rows), "skipped": skipped}
+
+
+@shared_task(
     name="social.tasks.delete_media_files",
     autoretry_for=(Exception,),
     retry_backoff=True,

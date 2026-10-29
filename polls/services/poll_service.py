@@ -199,9 +199,9 @@ class PollService:
 
     @staticmethod
     def record_view(*, poll: Poll, viewer: User | None, ip_address: str | None = None) -> None:
-        if viewer:
-            if PollView.objects.filter(poll=poll, viewer=viewer).exists():
-                return
+        if viewer and PollView.objects.filter(poll=poll, viewer=viewer).exists():            
+            return
+        
         PollView.objects.create(poll=poll, viewer=viewer, ip_address=ip_address)
         Poll.objects.filter(pk=poll.pk).update(total_views=F("total_views") + 1)
 

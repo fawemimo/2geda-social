@@ -54,7 +54,7 @@ class PostService:
         if media_ids:
             media_id_strs = [str(m) for m in media_ids]
             transaction.on_commit(
-                lambda: process_post_media.delay(str(post.id), media_id_strs)
+                lambda ids=media_id_strs: process_post_media.delay(str(post.id), ids)
             )
 
         if reshare_of_id:
@@ -113,7 +113,7 @@ class PostService:
             if set(new_ids) != old_ids:                
                 instance.attachments.all().delete()
                 transaction.on_commit(
-                    lambda: process_post_media.delay(str(instance.id), new_ids)
+                    lambda ids=new_ids: process_post_media.delay(str(instance.id), ids)
                 )
 
         instance.save()

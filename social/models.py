@@ -153,6 +153,30 @@ class PostMedia(UUIDPrimaryKeyMixin):
             models.Index(fields=["post", "position"], name="postmedia_order_idx"),
         ]
 
+# Ordered attachment of a Media asset to a Comment.
+
+class CommentMedia(UUIDPrimaryKeyMixin):
+    comment = models.ForeignKey(
+        "social.Comment",
+        on_delete=models.CASCADE,
+        related_name="attachments",
+    )
+    media = models.ForeignKey(
+        Media,
+        on_delete=models.CASCADE,
+        related_name="comment_attachments",
+    )
+    position = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        db_table = "social_comment_media"
+        unique_together = [("comment", "media")]
+        ordering = ["position"]
+        indexes = [
+            models.Index(fields=["comment", "position"], name="commentmedia_order_idx"),
+        ]
+
+
 # A user's like on any likeable object (Post, Comment).
 
 class Like(UUIDPrimaryKeyMixin, TimestampMixin):

@@ -206,7 +206,7 @@ class CommentViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         post_id = self.kwargs.get("post_id")
-        qs = Comment.objects.filter(is_deleted=False).select_related("author", "post")
+        qs = Comment.objects.filter(is_deleted=False).select_related("author", "post").prefetch_related("attachments__media")
         if post_id:
             qs = qs.filter(post_id=post_id)
         if self.action == "list":
@@ -238,12 +238,13 @@ class CommentViewSet(viewsets.ModelViewSet):
         )
 
     def list(self, request, *args, **kwargs):
-        queryset = self.filter_queryset(self.get_queryset())
+        queryset = self.filter_queryset(self.get_queryset().prefetch_related("attachments__media"))
         serializer = self.get_serializer(queryset, many=True)
         return APIResponse.success(data=serializer.data)
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
+        instance = Comment.objects.filter(pk=instance.pk).prefetch_related("attachments__media").select_related("author", "post").first() or instance
         serializer = self.get_serializer(instance)
         return APIResponse.success(data=serializer.data)
 
@@ -257,7 +258,7 @@ class CommentViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         comment = CommentService.update(
-            instance=instance, body=serializer.validated_data["body"]
+            instance=instance, validated_data=serializer.validated_data
         )
         return APIResponse.success(
             message="Comment updated successfully.", data={"id": comment.id}
