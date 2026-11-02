@@ -67,6 +67,7 @@ class Post(BaseModel):
         db_index=True,
     )
     body = models.TextField(blank=True, max_length=2000)
+    reaction_type = models.CharField(max_length=20, blank=True, null=True)
     visibility = models.CharField(
         max_length=10,
         choices=PostVisibility.choices,
@@ -244,6 +245,7 @@ class Comment(BaseModel):
         help_text=_("Null = top-level comment; set = reply to another comment."),
     )
     body = models.TextField(max_length=1000)
+    reaction_type = models.CharField(max_length=20, blank=True, null=True)
 
     # ---- Full-text ----
     # Maintained by a PostgreSQL trigger (social.0005_search_triggers).

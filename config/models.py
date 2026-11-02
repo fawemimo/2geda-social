@@ -80,9 +80,9 @@ class Setting(UUIDPrimaryKeyMixin, TimestampMixin):
                     }}
                 ) from exc
 
-    def save(self, *args, **kwargs):
-        self.full_clean()
-        return super().save(*args, **kwargs)
+    # def save(self, *args, **kwargs):
+    #     self.full_clean()
+    #     return super().save(*args, **kwargs)
 
     
     @staticmethod

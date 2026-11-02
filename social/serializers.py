@@ -91,7 +91,7 @@ class PostListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Post
         fields = [
-            "id", "author", "body", "visibility",
+            "id", "author", "body", "reaction_type", "visibility",
             "attachments", "is_liked",
             "reshare_of", "reshare_of_detail", "reshare_comment",
             "likes_count", "comments_count", "reshares_count",
@@ -205,7 +205,7 @@ class CommentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Comment
         fields = [
-            "id", "post", "author", "parent", "body",
+            "id", "post", "author", "parent", "body", "reaction_type",
             "likes_count", "replies_count",
             "is_liked", "replies", "location",
             "attachments",
@@ -292,3 +292,11 @@ class LikeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Like
         fields = ["id", "user", "created_at"]
+
+
+class LikeCreateSerializer(serializers.Serializer):
+    reaction_type = serializers.CharField(
+        max_length=20,
+        required=True,
+        allow_null=False,
+    )

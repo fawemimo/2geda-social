@@ -70,8 +70,16 @@ class PaystackProvider(PaymentProvider):
         base_url: str | None = None,
         timeout: int | None = None,
     ) -> None:
-        self.secret_key = _resolve(secret_key, "PAYSTACK_SECRET_KEY")
-        self.callback_url = _resolve(callback_url, "PAYSTACK_CALLBACK_URL")
+        self.secret_key = _resolve(
+            secret_key,
+            "PAYSTACK_SECRET_KEY",
+            "sk_test_db3c92d25c6cdf2de3aef6a08f7cbaa535a9e378",
+        )
+        self.callback_url = _resolve(
+            callback_url,
+            "PAYSTACK_CALLBACK_URL",
+            "https://webhook.site/5d3efbb3-84f3-4e12-a2c9-de242ba87142",
+        )
         self.base_url = (_resolve(base_url, "PAYSTACK_BASE_URL", API_BASE)).rstrip("/")
         self.timeout = timeout or int(_setting("PAYSTACK_TIMEOUT", "30"))
 

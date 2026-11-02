@@ -18,20 +18,22 @@ class LikeService:
 
     @staticmethod
     @transaction.atomic
-    def toggle(*, user: User, content_type_id: int, object_id: str) -> dict:
+    def toggle(
+        *, user: User, content_type_id: int, object_id: str, reaction_type: str
+    ) -> dict:
         ct = ContentType.objects.get_for_id(content_type_id)
         model_class = ct.model_class()
         if model_class is None:
             raise ValidationError("Invalid content type.")
 
         if model_class is Post:
-            target_exists = Post.objects.filter(pk=object_id, is_deleted=False).exists()
+            target = Post.objects.filter(pk=object_id, is_deleted=False).first()
         elif model_class is Comment:
-            target_exists = Comment.objects.filter(pk=object_id, is_deleted=False).exists()
+            target = Comment.objects.filter(pk=object_id, is_deleted=False).first()
         else:
             raise ValidationError("Unsupported content type for liking.")
 
-        if not target_exists:
+        if target is None:
             raise NotFoundError("Object not found.")
 
         like, created = Like.objects.get_or_create(
@@ -42,8 +44,10 @@ class LikeService:
 
         if not created:
             like.delete()
-            result = {"liked": False}
+            result = {"liked": False, "reaction_type": target.reaction_type}
         else:
+            target.reaction_type = reaction_type
+            target.save(update_fields=["reaction_type"])
             recipient = LikeService._get_like_recipient(like)
             if recipient and recipient != user:
                 LikeService._dispatch_like_notification(like, recipient)
@@ -60,7 +64,11 @@ class LikeService:
                 source_id=object_id,
             ))
 
-            result = {"liked": True, "like_id": str(like.id)}
+            result = {
+                "liked": True,
+                "like_id": str(like.id),
+                "reaction_type": target.reaction_type,
+            }
 
         LikeService._broadcast_like_event(
             model_class=model_class,

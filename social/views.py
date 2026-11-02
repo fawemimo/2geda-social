@@ -29,6 +29,7 @@ from social.serializers import (
     CommentCreateSerializer,
     CommentSerializer,
     CommentUpdateSerializer,
+    LikeCreateSerializer,
     LikeSerializer,
     PostCreateSerializer,
     PostListSerializer,
@@ -170,12 +171,15 @@ class PostViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def like(self, request, pk=None):
         post = self.get_object()
+        serializer = LikeCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         post_ct = ContentType.objects.get_for_model(Post)
         try:
             result = LikeService.toggle(
                 user=request.user,
                 content_type_id=post_ct.id,
                 object_id=str(post.id),
+                reaction_type=serializer.validated_data["reaction_type"],
             )
         except ServiceError as exc:
             return APIResponse.error(message=exc.message, status_code=exc.status_code)
@@ -280,12 +284,15 @@ class CommentViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def like(self, request, post_id=None, pk=None):
         comment = self.get_object()
+        serializer = LikeCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         comment_ct = ContentType.objects.get_for_model(Comment)
         try:
             result = LikeService.toggle(
                 user=request.user,
                 content_type_id=comment_ct.id,
                 object_id=str(comment.id),
+                reaction_type=serializer.validated_data["reaction_type"],
             )
         except ServiceError as exc:
             return APIResponse.error(message=exc.message, status_code=exc.status_code)
