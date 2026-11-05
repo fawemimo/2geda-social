@@ -10,6 +10,7 @@ display_like = views.DisplayViewSet.as_view({"post": "like"})
 display_viewers = views.DisplayViewSet.as_view({"get": "viewers"})
 display_my = views.DisplayViewSet.as_view({"get": "my"})
 display_feed = views.DisplayViewSet.as_view({"get": "feed"})
+display_seen = views.DisplayViewSet.as_view({"post": "seen"})
 
 comment_list = views.DisplayCommentViewSet.as_view({"get": "list", "post": "create"})
 comment_detail = views.DisplayCommentViewSet.as_view({"delete": "destroy"})
@@ -21,6 +22,7 @@ urlpatterns = [
     path("<uuid:pk>/", display_detail, name="display-detail"),
     path("<uuid:pk>/like/", display_like, name="display-like"),
     path("<uuid:pk>/viewers/", display_viewers, name="display-viewers"),
+    path("<uuid:pk>/seen/", display_seen, name="display-seen"),
     path("<uuid:display_id>/comments/", comment_list, name="display-comments"),
     path("<uuid:display_id>/comments/<uuid:pk>/", comment_detail, name="display-comment-detail"),
 ]
