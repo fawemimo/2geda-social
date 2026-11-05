@@ -111,8 +111,6 @@ class PollViewSet(ModelViewSet):
     @action(detail=True, methods=["post"])
     def vote(self, request, pk=None):
         poll = self.get_object()
-        if poll.author == request.user:
-            return APIResponse.error(message="You cannot vote on your own poll.", status_code=403)
         if poll.is_expired:
             return APIResponse.error(message="This poll has expired.", status_code=400)
         if poll.is_paid_voting:
@@ -205,8 +203,6 @@ class PollViewSet(ModelViewSet):
     @action(detail=True, methods=["post"], url_path="vote/pay")
     def initialize_vote_payment(self, request, pk=None):
         poll = self.get_object()
-        if poll.author == request.user:
-            return APIResponse.error(message="You cannot vote on your own poll.", status_code=403)
         if not poll.is_paid_voting:
             return APIResponse.error(message="This poll does not require payment.", status_code=400)
 

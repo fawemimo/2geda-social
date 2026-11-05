@@ -52,7 +52,7 @@ class PaymentService:
         try:
             return PaymentService.gateway().verify(reference)
         except PaymentError as exc:
-            logger.error("Payment verification failed: %s", exc)
+            logger.exception("Payment verification failed: %s", exc)
             raise PaymentVerificationFailed(str(exc)) from exc
 
     @staticmethod
