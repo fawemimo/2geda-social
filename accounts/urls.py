@@ -89,6 +89,8 @@ urlpatterns = [
     # users
     path("users/", views.UserListView.as_view(), name="user-list"),
     path("users/<uuid:user_id>/", views.UserDetailView.as_view(), name="user-detail"),
+    path("users/<uuid:user_id>/followers/", views.UserFollowersView.as_view(), name="user-followers"),
+    path("users/<uuid:user_id>/following/", views.UserFollowingView.as_view(), name="user-following"),
     # connect
     path(
         "location/update/",

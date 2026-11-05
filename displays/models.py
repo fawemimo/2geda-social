@@ -21,6 +21,7 @@ class Display(BaseModel):
         max_length=10, choices=PostVisibility.choices,
         default=PostVisibility.PUBLIC.value, db_index=True,
     )
+    is_seen = models.BooleanField(default=False, db_index=True)
     expires_at = models.DateTimeField(db_index=True)
     reshare_of = models.ForeignKey(
         "self", on_delete=models.SET_NULL, null=True, blank=True,
@@ -38,6 +39,7 @@ class Display(BaseModel):
         indexes = [
             models.Index(fields=["author", "-created_at"], name="display_author_created_idx"),
             models.Index(fields=["expires_at", "is_deleted"], name="display_expiry_cleanup_idx"),
+            models.Index(fields=["is_seen"], name="display_is_seen_idx"),
         ]
 
     def save(self, *args, **kwargs):

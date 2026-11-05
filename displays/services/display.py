@@ -84,6 +84,14 @@ class DisplayService:
         return display.views_count
 
     @staticmethod
+    def record_seen(*, display: Display, user: User) -> None:
+        if display.author != user:
+            return
+        if not display.is_seen:
+            Display.objects.filter(pk=display.pk).update(is_seen=True)
+            display.is_seen = True
+
+    @staticmethod
     @transaction.atomic
     def toggle_like(*, display: Display, user: User) -> dict:
         from displays.models import DisplayLike

@@ -100,6 +100,12 @@ class DisplayViewSet(viewsets.ModelViewSet):
         ]
         return APIResponse.success(data=data)
 
+    @action(detail=True, methods=["post"], url_path="mark-seen", url_name="mark-seen")
+    def seen(self, request, pk=None):
+        display = self.get_object()
+        DisplayService.record_seen(display=display, user=request.user)
+        return APIResponse.success(message="Display marked as seen.")
+
     @action(detail=True, methods=["post"])
     def like(self, request, pk=None):
         display = self.get_object()

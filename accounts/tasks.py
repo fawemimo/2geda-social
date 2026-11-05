@@ -4,13 +4,11 @@ import logging
 from datetime import timedelta
 
 from celery import shared_task
-from django.conf import settings
 from django.contrib.auth.hashers import make_password
 from django.utils import timezone
 
 from accounts.services.interfaces import NotificationPayload
 from accounts.services.notifications import EmailNotificationSender
-from clients.expo.notifications import ExpoNotificationAPI
 from config import get_int
 
 logger = logging.getLogger(__name__)

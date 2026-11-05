@@ -973,6 +973,64 @@ class UserLocationUpdateView(APIView):
         )
 
 
+class UserFollowersView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, user_id):
+        from accounts.models import Follow
+
+        try:
+            user = User.objects.get(pk=user_id, is_active=True, is_deleted=False)
+        except User.DoesNotExist:
+            return APIResponse.error(message="User not found.", status_code=404)
+
+        qs = (
+            Follow.objects.filter(following=user, status="accepted")
+            .select_related("follower__profile__avatar")
+            .order_by("-created_at")
+        )
+        items = [{"user": f.follower, "created_at": f.created_at} for f in qs]
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(items, request, view=self)
+        if page is not None:
+            serializer = FollowListSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+        serializer = FollowListSerializer(items, many=True)
+        return APIResponse.success(
+            message="Followers list fetched successfully.",
+            data=serializer.data,
+        )
+
+
+class UserFollowingView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, user_id):
+        from accounts.models import Follow
+
+        try:
+            user = User.objects.get(pk=user_id, is_active=True, is_deleted=False)
+        except User.DoesNotExist:
+            return APIResponse.error(message="User not found.", status_code=404)
+
+        qs = (
+            Follow.objects.filter(follower=user, status="accepted")
+            .select_related("following__profile__avatar")
+            .order_by("-created_at")
+        )
+        items = [{"user": f.following, "created_at": f.created_at} for f in qs]
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(items, request, view=self)
+        if page is not None:
+            serializer = FollowListSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+        serializer = FollowListSerializer(items, many=True)
+        return APIResponse.success(
+            message="Following list fetched successfully.",
+            data=serializer.data,
+        )
+
+
 class MyFollowingView(APIView):
     permission_classes = [IsAuthenticated]
 
