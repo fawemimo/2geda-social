@@ -244,15 +244,25 @@ class ConnectService:
         send_user_push_notification.delay(
             user_id=str(requester.id),
             title="Connection Request Sent",
-            body=f"You have sent a connection request to {recipient.username}.",
-            data={"type": "connection_request_sent", "recipient_id": str(recipient.id)},
+            body=f"Your connection request has been sent to @{recipient.username}. You'll be notified when they respond.",
+            data={
+                "type": "connection_request_sent",
+                "recipient_id": str(recipient.id),
+                "recipient_username": recipient.username,
+                "connection_id": str(connection.id),
+            },
         )
 
         send_user_push_notification.delay(
             user_id=str(recipient.id),
             title="New Connection Request",
-            body=f"{requester.username} wants to connect with you.",
-            data={"type": "connection_request", "requester_id": str(requester.id)},
+            body=f"@{requester.username} would like to connect with you. Tap to view their profile and respond.",
+            data={
+                "type": "connection_request",
+                "requester_id": str(requester.id),
+                "requester_username": requester.username,
+                "connection_id": str(connection.id),
+            },
         )
 
         self._create_in_app_notification(
@@ -260,8 +270,9 @@ class ConnectService:
             actor=requester,
             notification_type="connection_request",
             title="New Connection Request",
-            body=f"@{requester.username} wants to connect with you.",
+            body=f"@{requester.username} would like to connect with you.",
             source_object=connection,
+            action_url=f"/users/{requester.id}",
         )
 
         return connection
@@ -291,18 +302,36 @@ class ConnectService:
 
             send_user_push_notification.delay(
                 user_id=str(connection.requester_id),
-                title="Connection Request Accepted",
-                body=f"{user.username} accepted your connection request.",
-                data={"type": "connection_accepted", "recipient_id": str(user.id)},
+                title="Connection Accepted",
+                body=f"@{user.username} accepted your connection request. You are now connected!",
+                data={
+                    "type": "connection_accepted",
+                    "user_id": str(user.id),
+                    "username": user.username,
+                    "connection_id": str(connection.id),
+                },
+            )
+
+            send_user_push_notification.delay(
+                user_id=str(user.id),
+                title="New Connection",
+                body=f"You are now connected with @{connection.requester.username}.",
+                data={
+                    "type": "connection_established",
+                    "user_id": str(connection.requester_id),
+                    "username": connection.requester.username,
+                    "connection_id": str(connection.id),
+                },
             )
 
             self._create_in_app_notification(
                 recipient=connection.requester,
                 actor=user,
                 notification_type="connection_accepted",
-                title="Connection Request Accepted",
-                body=f"@{user.username} accepted your connection request.",
+                title="Connection Accepted",
+                body=f"@{user.username} accepted your connection request. You are now connected!",
                 source_object=connection,
+                action_url=f"/users/{user.id}",
             )
         elif action == "reject":
             connection.status = ConnectionStatus.REJECTED.value
@@ -310,6 +339,28 @@ class ConnectService:
             DiscoveryCache.remove_connection(
                 str(connection.requester_id),
                 str(connection.recipient_id),
+            )
+
+            send_user_push_notification.delay(
+                user_id=str(connection.requester_id),
+                title="Connection Request Declined",
+                body=f"@{user.username} has declined your connection request.",
+                data={
+                    "type": "connection_rejected",
+                    "user_id": str(user.id),
+                    "username": user.username,
+                    "connection_id": str(connection.id),
+                },
+            )
+
+            self._create_in_app_notification(
+                recipient=connection.requester,
+                actor=user,
+                notification_type="connection_rejected",
+                title="Connection Request Declined",
+                body=f"@{user.username} has declined your connection request.",
+                source_object=connection,
+                action_url=f"/users/{user.id}",
             )
         else:
             raise ValueError("Invalid action.")
@@ -343,6 +394,7 @@ class ConnectService:
         title: str,
         body: str,
         source_object,
+        action_url: str = "",
     ) -> None:
         from notifications.services.dto import CreateNotificationDTO
         from notifications.services.notification_services import (
@@ -351,7 +403,7 @@ class ConnectService:
         from notifications.tasks import dispatch_notification
 
         try:
-            dto = CreateNotificationDTO(
+            kwargs = dict(
                 recipient_id=str(recipient.id),
                 notification_type=notification_type,
                 title=title,
@@ -361,6 +413,9 @@ class ConnectService:
                 source_id=str(source_object.pk),
                 priority="normal",
             )
+            if action_url:
+                kwargs["action_url"] = action_url
+            dto = CreateNotificationDTO(**kwargs)
             notification = NotificationCreator.create(dto)
             dispatch_notification.delay(str(notification.id))
         except Exception:

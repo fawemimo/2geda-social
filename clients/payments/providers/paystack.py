@@ -77,8 +77,7 @@ class PaystackProvider(PaymentProvider):
         )
         self.callback_url = _resolve(
             callback_url,
-            "PAYSTACK_CALLBACK_URL",
-            "https://webhook.site/5d3efbb3-84f3-4e12-a2c9-de242ba87142",
+            "PAYSTACK_CALLBACK_URL"
         )
         self.base_url = (_resolve(base_url, "PAYSTACK_BASE_URL", API_BASE)).rstrip("/")
         self.timeout = timeout or int(_setting("PAYSTACK_TIMEOUT", "30"))
@@ -108,13 +107,16 @@ class PaystackProvider(PaymentProvider):
     ) -> PaymentInitialization:
         self._require_config()
 
+        resolved_callback = callback_url if callback_url is not None else self.callback_url
+
         payload: dict[str, Any] = {
             "email": email,
             "amount": int(Decimal(amount) * 100),
             "reference": reference,
             "currency": currency,
-            "callback_url": callback_url or self.callback_url,
         }
+        if resolved_callback:
+            payload["callback_url"] = resolved_callback
         if metadata:
             payload["metadata"] = dict(metadata)
 

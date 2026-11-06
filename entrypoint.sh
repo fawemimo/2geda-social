@@ -34,6 +34,10 @@ python manage.py migrate --noinput
 echo "Running sync of variables to DB"
 python manage.py sync_config
 
+# Create default superuser if env vars are set
+echo "Ensuring superuser exists..."
+python manage.py create_default_superuser
+
 # Collect static files
 echo "Collecting static files..."
 python manage.py collectstatic --noinput

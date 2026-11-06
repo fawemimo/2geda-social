@@ -18,6 +18,7 @@ from rest_framework_simplejwt.tokens import AccessToken
 from utils.enum import CallType
 from chats.models import Conversation, ConversationMember, JoinRequest, Message
 from chats.serializers import (
+    CallLogSerializer,
     ConversationSerializer,
     JoinRequestSerializer,
     MediaSearchSerializer,
@@ -110,6 +111,7 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
             "get_messages": self._handle_get_messages,
             "send_message": self._handle_send_message,
             "delete_message": self._handle_delete_message,
+            "edit_message": self._handle_edit_message,
             "mark_read": self._handle_mark_read,
             "add_group_members": self._handle_add_group_members,
             "remove_group_member": self._handle_remove_group_member,
@@ -133,6 +135,7 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
             "call.end": self._handle_call_end,
             "call.video_toggle": self._handle_video_toggle,
             "call.screen_share": self._handle_screen_share,
+            "get_call_logs": self._handle_get_call_logs,
         }.get(msg_type)
 
         if handler is None:
@@ -284,6 +287,37 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
                 "message_id": result["message_id"],
                 "conversation_id": result["conversation_id"],
                 "deleted_by_id": str(self.user.id),
+            },
+        )
+
+    async def _handle_edit_message(self, content: dict):
+        message_id = content.get("message_id")
+        new_body = content.get("body", "")
+        if not message_id:
+            return await self._error("missing_message_id", request_id=content.get("request_id"))
+        if not new_body.strip():
+            return await self._error("empty_body", "Message body cannot be empty.", request_id=content.get("request_id"))
+
+        try:
+            result = await self._edit_message(message_id=message_id, new_body=new_body)
+        except PermissionError:
+            return await self._error(
+                "not_allowed",
+                "You can only edit your own messages.",
+                request_id=content.get("request_id"),
+            )
+        except (Message.DoesNotExist, ValidationError):
+            return await self._error("message_not_found", request_id=content.get("request_id"))
+
+        await self.channel_layer.group_send(
+            f"chat_{result['conversation_id']}",
+            {
+                "type": "message_edited",
+                "message_id": result["message_id"],
+                "conversation_id": result["conversation_id"],
+                "body": result["body"],
+                "edited_by_id": str(self.user.id),
+                "edited_at": result["edited_at"],
             },
         )
 
@@ -598,12 +632,35 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
         if not peer_id:
             return await self._error("missing_call_params")
 
+        conversation_id = content.get("conversation_id")
+        call_type = content.get("call_type", CallType.AUDIO.value)
+        reason = content.get("reason", "ended")
+        duration = content.get("duration_seconds", 0)
+
+        from utils.enum import CallStatus
+        status_map = {
+            "ended": CallStatus.ANSWERED.value,
+            "missed": CallStatus.MISSED.value,
+            "declined": CallStatus.DECLINED.value,
+            "cancelled": CallStatus.CANCELLED.value,
+        }
+        call_status = status_map.get(reason, CallStatus.ANSWERED.value)
+
+        if conversation_id:
+            await self._create_call_log(
+                conversation_id=conversation_id,
+                peer_id=peer_id,
+                call_type=call_type,
+                status=call_status,
+                duration_seconds=duration,
+            )
+
         await self.channel_layer.group_send(
             f"user_{peer_id}",
             {
                 "type": "call_ended",
                 "ended_by": str(self.user.id),
-                "reason": content.get("reason", "ended"),
+                "reason": reason,
             },
         )
 
@@ -638,6 +695,10 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
                 "sharing": bool(sharing),
             },
         )
+
+    async def _handle_get_call_logs(self, content: dict):
+        data = await self._get_call_logs()
+        await self._response(content, "call_logs", data)
 
     # ──────────────────────────────────────────────────────────────────────────
     #  Outbound event handlers (called by group_send)
@@ -674,6 +735,9 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
         await self.send_json(event)
 
     async def screen_share(self, event: dict):
+        await self.send_json(event)
+
+    async def message_edited(self, event: dict):
         await self.send_json(event)
 
     async def message_deleted(self, event: dict):
@@ -1111,3 +1175,44 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
             "message_id": str(msg.id),
             "conversation_id": str(msg.conversation_id),
         }
+
+    @database_sync_to_async
+    def _edit_message(self, message_id: str, new_body: str) -> dict:
+        msg = ChatService.edit_message(
+            message_id=message_id,
+            actor_id=str(self.user.id),
+            new_body=new_body,
+        )
+        return {
+            "message_id": str(msg.id),
+            "conversation_id": str(msg.conversation_id),
+            "body": msg.body,
+            "edited_at": msg.edited_at.isoformat(),
+        }
+
+    @database_sync_to_async
+    def _create_call_log(
+        self,
+        conversation_id: str,
+        peer_id: str,
+        call_type: str,
+        status: str,
+        duration_seconds: int = 0,
+    ):
+        ended_at = timezone.now()
+        started_at = ended_at - timedelta(seconds=duration_seconds) if duration_seconds else None
+        ChatService.create_call_log(
+            conversation_id=conversation_id,
+            caller_id=str(self.user.id),
+            receiver_id=peer_id,
+            call_type=call_type,
+            status=status,
+            started_at=started_at,
+            ended_at=ended_at,
+            duration_seconds=duration_seconds,
+        )
+
+    @database_sync_to_async
+    def _get_call_logs(self):
+        logs = ChatService.get_call_logs(user_id=str(self.user.id))
+        return CallLogSerializer(logs, many=True).data

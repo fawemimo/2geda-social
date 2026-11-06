@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
 
 from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
-from chats.models import Conversation, ConversationMember, JoinRequest, Message, MessageReaction
+from chats.models import CallLog, Conversation, ConversationMember, JoinRequest, Message
 from medias.models import Media
-from utils.enum import ConversationType, DeliveryStatus, MediaType, MemberRole, MessageType, NotificationPriority, NotificationType, ProcessingStatus
+from utils.enum import CallStatus, CallType, ConversationType, MediaType, MemberRole, MessageType, NotificationPriority, NotificationType, ProcessingStatus
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +213,61 @@ class ChatService:
                 return msg
 
         raise PermissionError("You can only delete your own messages.")
+
+    @staticmethod
+    @transaction.atomic
+    def edit_message(
+        *,
+        message_id: str,
+        actor_id: str,
+        new_body: str,
+    ) -> Message:
+        msg = Message.objects.select_related("sender", "conversation", "media").get(
+            pk=message_id, is_deleted=False,
+        )
+        if str(msg.sender_id) != str(actor_id):
+            raise PermissionError("You can only edit your own messages.")
+
+        msg.body = new_body
+        msg.is_edited = True
+        msg.edited_at = timezone.now()
+        msg.save(update_fields=["body", "is_edited", "edited_at"])
+        return msg
+
+    @staticmethod
+    @transaction.atomic
+    def create_call_log(
+        *,
+        conversation_id: str,
+        caller_id: str,
+        receiver_id: str,
+        call_type: str = CallType.AUDIO.value,
+        status: str = CallStatus.MISSED.value,
+        started_at=None,
+        ended_at=None,
+        duration_seconds: int = 0,
+    ) -> CallLog:
+        return CallLog.objects.create(
+            conversation_id=conversation_id,
+            caller_id=caller_id,
+            receiver_id=receiver_id,
+            call_type=call_type,
+            status=status,
+            started_at=started_at,
+            ended_at=ended_at,
+            duration_seconds=duration_seconds,
+        )
+
+    @staticmethod
+    def get_call_logs(*, user_id: str, limit: int = 50) -> list[CallLog]:
+        from django.db.models import Q
+        return list(
+            CallLog.objects.filter(
+                Q(caller_id=user_id) | Q(receiver_id=user_id)
+            ).select_related(
+                "caller", "receiver", "conversation",
+            ).order_by("-created_at")[:limit]
+        )
 
     @staticmethod
     @transaction.atomic

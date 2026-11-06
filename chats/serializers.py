@@ -3,7 +3,7 @@ from __future__ import annotations
 from django.core.cache import cache
 from rest_framework import serializers
 
-from chats.models import Conversation, ConversationMember, JoinRequest, Message
+from chats.models import CallLog, Conversation, ConversationMember, JoinRequest, Message
 from chats.services.chat_service import GROUP_MAX_MEMBERS, GROUP_MIN_MEMBERS
 
 PRESENCE_CACHE_PREFIX = "online_user:"
@@ -153,6 +153,23 @@ class UserSearchSerializer(serializers.Serializer):
 
     class Meta:
         fields = ["user_id", "username", "email", "display_name", "avatar_url"]
+
+
+class CallLogSerializer(serializers.ModelSerializer):
+    caller_id = serializers.UUIDField(read_only=True)
+    caller_username = serializers.CharField(source="caller.username", read_only=True)
+    receiver_id = serializers.UUIDField(read_only=True)
+    receiver_username = serializers.CharField(source="receiver.username", read_only=True)
+    conversation_id = serializers.UUIDField(read_only=True)
+
+    class Meta:
+        model = CallLog
+        fields = [
+            "id", "conversation_id", "caller_id", "caller_username",
+            "receiver_id", "receiver_username", "call_type", "status",
+            "started_at", "ended_at", "duration_seconds", "created_at",
+        ]
+        read_only_fields = fields
 
 
 class MediaSearchSerializer(serializers.ModelSerializer):

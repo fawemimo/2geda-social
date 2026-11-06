@@ -5,7 +5,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from medias.models import Media
-from utils.enum import ConversationType, DeliveryStatus, MemberRole, MessageType
+from utils.enum import CallStatus, CallType, ConversationType, DeliveryStatus, MemberRole, MessageType
 from utils.models import BaseModel, TimestampMixin, UUIDPrimaryKeyMixin
 from accounts.models import User
 
@@ -290,6 +290,7 @@ class Message(BaseModel):
                 "size_bytes": item.file_size_bytes,
             } for item in media_items],
             "is_edited":      self.is_edited,
+            "edited_at":      self.edited_at.isoformat() if self.edited_at else None,
             "delivery_status": self.delivery_status,
             "created_at":     self.created_at.isoformat(),
             "is_deleted":     self.is_deleted,
@@ -387,5 +388,52 @@ class JoinRequest(UUIDPrimaryKeyMixin, TimestampMixin):
 
     def __str__(self) -> str:
         return f"{self.user.username} → {self.conversation_id} [{self.status}]"
+
+
+class CallLog(UUIDPrimaryKeyMixin, TimestampMixin):
+    conversation = models.ForeignKey(
+        Conversation,
+        on_delete=models.CASCADE,
+        related_name="call_logs",
+        db_index=True,
+    )
+    caller = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="outgoing_calls",
+        db_index=True,
+    )
+    receiver = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="incoming_calls",
+        db_index=True,
+    )
+    call_type = models.CharField(
+        max_length=10,
+        choices=CallType.choices(),
+        default=CallType.AUDIO.value,
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=CallStatus.choices(),
+        default=CallStatus.MISSED.value,
+        db_index=True,
+    )
+    started_at = models.DateTimeField(null=True, blank=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    duration_seconds = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table = "chat_call_log"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["caller", "-created_at"], name="call_caller_idx"),
+            models.Index(fields=["receiver", "-created_at"], name="call_receiver_idx"),
+            models.Index(fields=["conversation", "-created_at"], name="call_conv_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.call_type} call {self.caller} → {self.receiver} [{self.status}]"
 
 

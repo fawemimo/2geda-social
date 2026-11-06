@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from chats.models import Conversation, ConversationMember, Message, MessageReaction
+from chats.models import CallLog, Conversation, ConversationMember, Message, MessageReaction
 from utils.admin import BaseModelAdmin, BaseTabularInline
 
 
@@ -76,3 +76,21 @@ class MessageReactionAdmin(BaseModelAdmin):
     list_display = ("id", "message", "user", "emoji", "created_at")
     search_fields = ("message__id", "user__email", "user__username")
     autocomplete_fields = ("message", "user")
+
+
+@admin.register(CallLog)
+class CallLogAdmin(BaseModelAdmin):
+    list_display = (
+        "id",
+        "conversation",
+        "caller",
+        "receiver",
+        "call_type",
+        "status",
+        "started_at",
+        "ended_at",
+        "duration_seconds"
+    )
+    search_fields = ("conversation__id", "caller__email", "caller__username")
+    list_filter = ("call_type", "status")
+    autocomplete_fields = ("conversation", "caller", "receiver")

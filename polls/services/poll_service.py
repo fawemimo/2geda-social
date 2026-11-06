@@ -257,6 +257,7 @@ class PollService:
                 email=voter.email,
                 amount=amount,
                 reference=reference,
+                callback_url="",
                 metadata={
                     "poll_id": str(poll.id),
                     "option_id": str(option.id),
@@ -333,6 +334,99 @@ class PollService:
         )
 
         return votes
+
+    @staticmethod
+    @transaction.atomic
+    def process_vote_webhook(*, reference: str) -> list[Vote] | None:
+        try:
+            payment = VotePayment.objects.select_for_update().get(reference=reference)
+        except VotePayment.DoesNotExist:
+            return None
+
+        if payment.status == PaymentStatus.SUCCESSFUL.value:
+            existing = list(payment.votes.all())
+            return existing if existing else None
+
+        poll = Poll.objects.select_for_update().get(pk=payment.poll_id)
+
+        gateway = PaymentGateway()
+        try:
+            verification = gateway.verify(reference)
+        except PaymentError as exc:
+            logger.exception("Webhook vote payment verification failed: %s", exc)
+            return None
+
+        if not verification.is_successful:
+            payment.status = PaymentStatus.FAILED.value
+            payment.provider_data = verification.raw
+            payment.save(update_fields=["status", "provider_data"])
+            return None
+
+        payment.status = PaymentStatus.SUCCESSFUL.value
+        payment.provider_data = verification.raw
+        payment.save(update_fields=["status", "provider_data"])
+
+        option = PollOption.objects.select_for_update().get(pk=payment.option_id)
+        votes = Vote.objects.bulk_create([
+            Vote(poll=poll, option=option, voter=payment.voter, is_paid=True, payment=payment)
+            for _ in range(payment.quantity)
+        ])
+
+        PollOption.objects.filter(pk=option.pk).update(
+            vote_count=F("vote_count") + payment.quantity,
+        )
+        Poll.objects.filter(pk=poll.pk).update(
+            total_votes=F("total_votes") + payment.quantity,
+        )
+
+        from polls.services.broadcaster import broadcast_poll_event
+        poll.refresh_from_db()
+        options_data = PollService.get_options_data(poll)
+        broadcast_poll_event(str(poll.id), {
+            "event": "vote.update",
+            "poll_id": str(poll.id),
+            "option_id": str(option.id),
+            "voter_id": str(payment.voter_id),
+            "vote_count": len(votes),
+            "options": options_data,
+            "total_votes": poll.total_votes,
+        })
+
+        from accounts.tasks import send_user_push_notification
+        send_user_push_notification.delay(
+            user_id=str(payment.voter_id),
+            title="Vote Confirmed",
+            body=f"Your payment was successful and {payment.quantity} vote(s) have been cast on \"{poll.question[:50]}\".",
+            data={
+                "type": "vote_payment_confirmed",
+                "poll_id": str(poll.id),
+                "reference": reference,
+                "votes_cast": payment.quantity,
+            },
+        )
+
+        return votes
+
+    @staticmethod
+    def get_vote_payment_status(*, reference: str, voter: User) -> dict:
+        try:
+            payment = VotePayment.objects.get(reference=reference, voter=voter)
+        except VotePayment.DoesNotExist:
+            raise ValidationError("Payment reference not found.")
+
+        data = {
+            "reference": payment.reference,
+            "status": payment.status,
+            "poll_id": str(payment.poll_id),
+            "option_id": str(payment.option_id),
+            "quantity": payment.quantity,
+            "amount": payment.amount,
+        }
+
+        if payment.status == PaymentStatus.SUCCESSFUL.value:
+            data["votes_cast"] = payment.votes.count()
+
+        return data
 
     @staticmethod
     def get_poll_analytics(*, poll: Poll) -> dict:

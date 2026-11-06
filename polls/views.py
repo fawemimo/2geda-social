@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import logging
+
 from rest_framework import status
-from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticatedOrReadOnly
+from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.permissions import AllowAny, IsAuthenticatedOrReadOnly
 from rest_framework.viewsets import ModelViewSet
 
 from accounts.services.exceptions import ServiceError
@@ -15,7 +17,6 @@ from polls.serializers import (
     PollListSerializer,
     PollResultSerializer,
     PollUpdateSerializer,
-    VerifyVotePaymentSerializer,
     VoteCreateSerializer,
     VotePaymentSerializer,
 )
@@ -24,6 +25,8 @@ from polls.services.broadcaster import broadcast_poll_event
 from polls.tasks import process_poll_payout
 from utils.pagination import StandardPagination
 from utils.responses import APIResponse
+
+logger = logging.getLogger(__name__)
 
 
 class PollViewSet(ModelViewSet):
@@ -224,36 +227,19 @@ class PollViewSet(ModelViewSet):
         except ServiceError as e:
             return APIResponse.error(message=e.message, status_code=e.status_code)
 
-    @action(detail=True, methods=["post"], url_path="vote/confirm")
-    def verify_vote_payment(self, request, pk=None):
-        poll = self.get_object()
-        serializer = VerifyVotePaymentSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
+    @action(detail=True, methods=["get"], url_path="vote/status")
+    def vote_payment_status(self, request, pk=None):
+        reference = request.query_params.get("reference")
+        if not reference:
+            return APIResponse.error(message="reference query parameter is required.", status_code=400)
         try:
-            votes = PollService.verify_vote_payment(
-                reference=serializer.validated_data["reference"],
+            data = PollService.get_vote_payment_status(
+                reference=reference,
                 voter=request.user,
             )
-            poll.refresh_from_db()
-            options_data = PollService.get_options_data(poll)
-            first_vote = votes[0]
-            broadcast_poll_event(str(poll.id), {
-                "event": "vote.update",
-                "poll_id": str(poll.id),
-                "option_id": str(first_vote.option_id),
-                "voter_id": str(request.user.id),
-                "vote_count": len(votes),
-                "options": options_data,
-                "total_votes": poll.total_votes,
-            })
             return APIResponse.success(
-                message=f"Payment verified and {len(votes)} vote(s) cast successfully.",
-                data={
-                    "option_id": str(first_vote.option_id),
-                    "votes_cast": len(votes),
-                    "created_at": first_vote.created_at,
-                },
+                message="Payment status fetched.",
+                data=data,
             )
         except ServiceError as e:
             return APIResponse.error(message=e.message, status_code=e.status_code)
@@ -268,3 +254,39 @@ class PollViewSet(ModelViewSet):
         data = PollService.get_poll_analytics(poll=instance)
         serializer = PollAnalyticsSerializer(data)
         return APIResponse.success(data=serializer.data)
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def poll_payment_webhook(request):
+    from clients.payments import InvalidWebhookSignature, PaymentError
+    from clients.payments.gateway import PaymentGateway
+
+    gateway = PaymentGateway()
+    try:
+        event = gateway.parse_webhook(request.body, request.headers)
+    except InvalidWebhookSignature:
+        return APIResponse.error(message="Invalid signature.", status_code=401)
+    except PaymentError as exc:
+        logger.warning("Rejected malformed poll payment webhook: %s", exc)
+        return APIResponse.error(message="Invalid payload.", status_code=400)
+
+    reference = event.reference
+    if not reference:
+        return APIResponse.success(message="No reference, skipping.")
+
+    raw = event.raw or {}
+    metadata = (raw.get("data") or raw).get("metadata") or {}
+    if metadata.get("type") != "poll_vote":
+        return APIResponse.success(message="Not a poll vote payment, skipping.")
+
+    from clients.payments.base import PaymentEventType
+
+    if event.type == PaymentEventType.PAYMENT_SUCCEEDED:
+        try:
+            PollService.process_vote_webhook(reference=reference)
+        except Exception:
+            logger.exception("Poll vote webhook processing failed for reference=%s", reference)
+            return APIResponse.error(message="Webhook processing failed.", status_code=500)
+
+    return APIResponse.success(message="Webhook received.")

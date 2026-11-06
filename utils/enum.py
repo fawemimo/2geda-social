@@ -153,6 +153,17 @@ class CallType(Enum):
         return [(status.value, status.name.replace("_", " ").title()) for status in cls]
 
 
+class CallStatus(Enum):
+    MISSED = "missed"
+    ANSWERED = "answered"
+    DECLINED = "declined"
+    CANCELLED = "cancelled"
+
+    @classmethod
+    def choices(cls):
+        return [(status.value, status.name.replace("_", " ").title()) for status in cls]
+
+
 class ConversationType(Enum):
     DIRECT = "direct"  # exactly 2 participants
     GROUP = "group"  # 2+ participants, has name/avatar
