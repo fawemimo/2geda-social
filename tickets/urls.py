@@ -44,9 +44,19 @@ urlpatterns = [
         name="purchase-verify",
     ),
     path(
+        "buy/status/",
+        views.PurchasePaymentStatusView.as_view(),
+        name="purchase-status",
+    ),
+    path(
         "buy/my-tickets/",
         views.MyTicketsView.as_view(),
         name="my-tickets",
+    ),
+    path(
+        "buy/transactions/",
+        views.BuyerTransactionHistoryView.as_view(),
+        name="buyer-transactions",
     ),
     path(
         "tickets/verify/<str:code>/",

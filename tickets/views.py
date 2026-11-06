@@ -29,6 +29,7 @@ from tickets.serializers import (
     SellerApprovalSerializer,
     SellerApplicationSerializer,
     SellerProfileSerializer,
+    BuyerPurchaseHistorySerializer,
     TicketPurchaseInitializeSerializer,
     TicketPurchaseVerifySerializer,
     TicketSerializer,
@@ -49,15 +50,34 @@ from tickets.services.report_service import ReportService
 from tickets.services.seller_service import SellerService
 from tickets.services.ticket_service import TicketService
 from utils.enum import EventStatus, TicketStatus
+from utils.pagination import StandardPagination
 from utils.responses import APIResponse
 
 logger = logging.getLogger(__name__)
+
+
+class PaginatedAPIMixin:
+    pagination_class = StandardPagination
+    pagination_message = "Items fetched successfully."
+
+    @property
+    def paginator(self):
+        if not hasattr(self, "_paginator"):
+            self._paginator = self.pagination_class()
+        return self._paginator
+
+    def paginate_queryset(self, queryset):
+        return self.paginator.paginate_queryset(queryset, self.request, view=self)
+
+    def get_paginated_response(self, data):
+        return self.paginator.get_paginated_response(data)
 
 
 class EventCategoryViewSet(viewsets.ModelViewSet):
     queryset = EventCategory.objects.filter(is_deleted=False, is_active=True).order_by("name")
     serializer_class = EventCategorySerializer
     permission_classes = [AllowAny]
+    pagination_class = StandardPagination
 
     def perform_create(self, serializer):
         serializer.save()
@@ -142,6 +162,7 @@ class SellerApprovalView(APIView):
 
 class EventViewSet(viewsets.ModelViewSet):
     serializer_class = EventSerializer
+    pagination_class = StandardPagination
 
     def get_permissions(self):
         if self.action in ("public", "by_link", "price_tiers", "list", "retrieve"):
@@ -396,19 +417,90 @@ class TicketPurchaseVerifyView(APIView):
             )
 
 
-class MyTicketsView(APIView):
+class PurchasePaymentStatusView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        from tickets.models import TicketPurchase
+
+        reference = request.query_params.get("reference")
+        if not reference:
+            return APIResponse.error(
+                message="reference query parameter is required.",
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
+        purchase = TicketPurchase.objects.filter(
+            transaction_ref=reference,
+            buyer=request.user,
+        ).select_related("event").first()
+
+        if not purchase:
+            return APIResponse.error(
+                message="Purchase not found.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        tickets_data = []
+        if purchase.payment_status == "successful":
+            tickets_data = list(
+                purchase.tickets.values("id", "ticket_code", "qr_code_data")
+            )
+
+        return APIResponse.success(
+            message="Payment status fetched.",
+            data={
+                "reference": purchase.transaction_ref,
+                "status": purchase.payment_status,
+                "purchase_id": str(purchase.id),
+                "event_id": str(purchase.event_id),
+                "event_title": purchase.event.title,
+                "quantity": purchase.quantity,
+                "total_amount": float(purchase.total_amount),
+                "tickets": tickets_data,
+            },
+        )
+
+
+class MyTicketsView(PaginatedAPIMixin, APIView):
+    permission_classes = [IsAuthenticated]
+    pagination_message = "Tickets fetched successfully."
+
+    def get(self, request):
         tickets = TicketService.get_buyer_tickets(request.user)
+        page = self.paginate_queryset(tickets)
+        if page is not None:
+            serializer = TicketSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
         serializer = TicketSerializer(tickets, many=True)
         return APIResponse.success(data=serializer.data)
 
+
+class BuyerTransactionHistoryView(PaginatedAPIMixin, APIView):
+    permission_classes = [IsAuthenticated]
+    pagination_message = "Transactions fetched successfully."
+
+    def get(self, request):
+        from tickets.models import TicketPurchase
+
+        purchases = (
+            TicketPurchase.objects.filter(buyer=request.user)
+            .select_related("event", "event__seller")
+            .prefetch_related("tickets")
+            .order_by("-created_at")
+        )
+        page = self.paginate_queryset(purchases)
+        if page is not None:
+            serializer = BuyerPurchaseHistorySerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+        serializer = BuyerPurchaseHistorySerializer(purchases, many=True)
+        return APIResponse.success(data=serializer.data)
 
 
 class DisputeViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = DisputeSerializer
+    pagination_class = StandardPagination
 
     def get_queryset(self):
         user = self.request.user
@@ -574,8 +666,9 @@ class SellerReportDownloadView(APIView):
 
 
 
-class SellerTransactionView(APIView):
+class SellerTransactionView(PaginatedAPIMixin, APIView):
     permission_classes = [IsAuthenticated]
+    pagination_message = "Transactions fetched successfully."
 
     def get(self, request):
         profile = SellerService.get_for_user(request.user)
@@ -584,12 +677,17 @@ class SellerTransactionView(APIView):
         transactions = PaymentTransaction.objects.filter(
             seller=profile,
         ).select_related("event", "buyer").order_by("-created_at")
+        page = self.paginate_queryset(transactions)
+        if page is not None:
+            serializer = PaymentTransactionSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
         serializer = PaymentTransactionSerializer(transactions, many=True)
         return APIResponse.success(data=serializer.data)
 
 
-class SellerPayoutView(APIView):
+class SellerPayoutView(PaginatedAPIMixin, APIView):
     permission_classes = [IsAuthenticated]
+    pagination_message = "Payouts fetched successfully."
 
     def get(self, request):
         profile = SellerService.get_for_user(request.user)
@@ -598,6 +696,10 @@ class SellerPayoutView(APIView):
         payouts = Payout.objects.filter(
             seller=profile,
         ).order_by("-created_at")
+        page = self.paginate_queryset(payouts)
+        if page is not None:
+            serializer = PayoutSerializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
         serializer = PayoutSerializer(payouts, many=True)
         return APIResponse.success(data=serializer.data)
 

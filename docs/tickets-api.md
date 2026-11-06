@@ -88,7 +88,7 @@ Every JSON response uses the project-wide envelope from `utils/responses.py`.
 
 `code` is present only when the failure came from a typed service exception. `data` is never `null` — it is coerced to `{}`.
 
-**Paginated** (used by `GET /events/public/`)
+**Paginated** — all list endpoints return this envelope.
 
 ```json
 {
@@ -99,12 +99,14 @@ Every JSON response uses the project-wide envelope from `utils/responses.py`.
   "previousPage": null,
   "totalPages": 5,
   "totalItem": 87,
-  "totalPerPage": 20,
+  "totalPerPage": 100,
   "data": [ ]
 }
 ```
 
-Page size defaults to 20, override with `?page_size=` up to 200.
+Page size defaults to 100, override with `?page_size=` up to 200. Navigate with `?page=`.
+
+**Paginated endpoints:** `GET /events/`, `GET /events/public/`, `GET /categories/`, `GET /disputes/`, `GET /buy/my-tickets/`, `GET /buy/transactions/`, `GET /sellers/me/transactions/`, `GET /sellers/me/payouts/`.
 
 Two endpoints break the envelope deliberately and stream **raw CSV** instead: the two report downloads.
 
@@ -155,27 +157,37 @@ This is the most important flow in the module. It is deliberately two-phase.
    │                          │ 6. create n RESERVED tickets│
    │                          │                             │
    │                          │  initialize transaction     │
+   │                          │  (no callback URL)          │
    │                          ├────────────────────────────>│
    │                          │<────── authorization_url ───┤
    │<─── authorization_url ───┤                             │
    │                                                        │
    │ ─────────── buyer pays on Paystack ───────────────────>│
    │                                                        │
-   │                          │<═══ webhook charge.success ═┤   (authoritative)
-   │ POST /buy/verify/        │                             │
-   ├─────────────────────────>│  verify transaction         │
-   │                          ├────────────────────────────>│
-   │                          │<──────── status: success ───┤
+   │                          │<═══ webhook charge.success ═┤  (authoritative)
    │                          │ 7. purchase → successful    │
    │                          │ 8. tickets → SOLD + QR      │
    │                          │ 9. reserved -= n, sold += n │
    │                          │10. event totals updated     │
-   │<──── tickets + QR ───────┤                             │
+   │                          │11. push notification → buyer│
+   │                          │                             │
+   │  (Paystack shows own     │                             │
+   │   success/failure page)  │                             │
+   │                                                        │
+   │ GET /buy/status/?ref=REF │                             │
+   ├─────────────────────────>│                             │
+   │<──── status + tickets ───┤                             │
 ```
 
-**Why two phases.** Reserving before payment prevents two buyers paying for the same last seat. Confirming only after a server-to-server check with Paystack prevents a client from forging a successful payment.
+**No callback URL.** The payment initialization does not send a callback URL to Paystack. After payment, Paystack displays its own success/failure page. The backend is notified exclusively via the webhook.
 
-**Both `/buy/verify/` and the webhook call the same `TicketService.verify_purchase()`**, which is idempotent: a purchase already marked successful returns `{"status": "already_confirmed"}` without double-counting inventory. Whichever arrives first wins; the other is a no-op.
+**Why two phases.** Reserving before payment prevents two buyers paying for the same last seat. Confirming only after a server-to-server webhook from Paystack prevents a client from forging a successful payment.
+
+**The webhook calls `TicketService.verify_purchase()`**, which is idempotent: a purchase already marked successful returns `{"status": "already_confirmed"}` without double-counting inventory. **`/buy/verify/` is retained for backwards compatibility** — both call the same idempotent service method. The webhook is the primary confirmation path.
+
+**Push notification.** On successful webhook confirmation, the buyer receives a push notification: *"Your payment was successful! N ticket(s) for "Event Title" have been issued."*
+
+**Frontend polling.** After redirecting the buyer to Paystack, the client can poll `GET /buy/status/?reference=REF` to check whether the webhook has processed the payment. Once `status` is `"successful"`, the response includes the issued tickets.
 
 **Failure paths release inventory.** If Paystack reports anything other than success, or the amount paid is less than the amount owed, `_release_reservation()` marks the purchase failed, cancels the tickets, and returns the reserved quantity to the tier.
 
@@ -583,9 +595,76 @@ Clients should treat `confirmed` and `already_confirmed` identically.
 - `Paystack payment was not successful.` — reservation is released
 - `Payment amount mismatch.` — underpayment; reservation is released
 
+> **Note:** `/buy/verify/` is retained for backwards compatibility. The primary confirmation path is the Paystack webhook. New clients should use `/buy/status/` to poll for results instead.
+
+#### `GET /api/v2/tickets/buy/status/?reference={ref}`
+
+Poll the payment status after redirecting the buyer to Paystack. **Auth required.** Returns the purchase status and, once confirmed, the issued tickets.
+
+**Query parameters**
+
+| Param | Required | Description |
+| --- | --- | --- |
+| `reference` | Yes | The `transaction_ref` returned by `/buy/initialize/` |
+
+**Response `200` — pending**
+
+```json
+{
+  "status": true,
+  "message": "Payment status fetched.",
+  "data": {
+    "reference": "REF-2041548BCAC14A048BF1",
+    "status": "pending",
+    "purchase_id": "77aa88bb-99cc-4dd0-8e11-f22233344455",
+    "event_id": "c1a2b3d4-0000-4111-8222-333344445555",
+    "event_title": "Afrobeats Night 2026",
+    "quantity": 2,
+    "total_amount": 20000.0,
+    "tickets": []
+  }
+}
+```
+
+**Response `200` — successful**
+
+```json
+{
+  "status": true,
+  "message": "Payment status fetched.",
+  "data": {
+    "reference": "REF-2041548BCAC14A048BF1",
+    "status": "successful",
+    "purchase_id": "77aa88bb-99cc-4dd0-8e11-f22233344455",
+    "event_id": "c1a2b3d4-0000-4111-8222-333344445555",
+    "event_title": "Afrobeats Night 2026",
+    "quantity": 2,
+    "total_amount": 20000.0,
+    "tickets": [
+      {
+        "id": "d1e2f3a4-5566-4778-899a-bbccddeeff00",
+        "ticket_code": "TKT-SVVJD3",
+        "qr_code_data": "{\"ticket_code\": \"TKT-SVVJD3\", \"...\"}"
+      }
+    ]
+  }
+}
+```
+
+**Payment status values**
+
+| Status | Meaning |
+| --- | --- |
+| `pending` | Payment initialized, waiting for Paystack webhook |
+| `successful` | Payment confirmed, tickets issued |
+| `failed` | Payment failed or reservation released |
+
+**Response `400`** — `reference` query parameter missing
+**Response `404`** — no purchase found for that reference belonging to the caller
+
 #### `GET /api/v2/tickets/buy/my-tickets/`
 
-The caller's **sold** tickets, newest purchase first. **Auth required.** Reserved and cancelled tickets are excluded.
+The caller's **sold** tickets, newest purchase first. **Auth required, paginated.** Reserved and cancelled tickets are excluded.
 
 **Response `200`**
 
@@ -613,6 +692,43 @@ The caller's **sold** tickets, newest purchase first. **Auth required.** Reserve
   ]
 }
 ```
+
+#### `GET /api/v2/tickets/buy/transactions/`
+
+The caller's complete purchase transaction history, newest first. **Auth required, paginated.** Includes all payment statuses — pending, successful, and failed — so the buyer can see their full payment activity.
+
+**Response `200`**
+
+```json
+{
+  "status": true,
+  "message": "Request completed successfully.",
+  "data": [
+    {
+      "id": "77aa88bb-99cc-4dd0-8e11-f22233344455",
+      "event_id": "c1a2b3d4-0000-4111-8222-333344445555",
+      "event_title": "Afrobeats Night 2026",
+      "seller_name": "Lagos Live Events",
+      "quantity": 2,
+      "total_amount": "20000.00",
+      "fees_amount": "0.00",
+      "currency": "NGN",
+      "payment_status": "successful",
+      "transaction_ref": "REF-2041548BCAC14A048BF1",
+      "reserved_until": "2026-08-10T11:13:12Z",
+      "tickets_count": 2,
+      "created_at": "2026-08-10T10:58:12Z"
+    }
+  ]
+}
+```
+
+| Field | Description |
+| --- | --- |
+| `payment_status` | `pending` / `successful` / `failed` — see [Enumerations](#enumerations) |
+| `tickets_count` | Number of **sold** tickets in this purchase (0 while still pending) |
+| `reserved_until` | When the reservation expires if payment is not completed |
+| `transaction_ref` | Use with `GET /buy/status/?reference=` for live status polling |
 
 ---
 
@@ -651,7 +767,7 @@ Look up a ticket by its code — the endpoint a door scanner calls. **Public.**
 
 #### `GET /api/v2/tickets/disputes/`
 
-List disputes, scoped by role: **admins** see all, **sellers** see disputes against their events, **buyers** see their own.
+List disputes, scoped by role: **admins** see all, **sellers** see disputes against their events, **buyers** see their own. **Paginated.**
 
 **Response `200`**
 
@@ -822,7 +938,7 @@ REF-2041548BCAC14A048BF1,purchase,Afrobeats Night 2026,20000.00,1000.00,successf
 
 #### `GET /api/v2/tickets/sellers/me/transactions/`
 
-Payment transactions for the caller's seller profile, newest first. Returns `{"data": []}` — **not** a 404 — when the caller has no seller profile.
+Payment transactions for the caller's seller profile, newest first. **Paginated.** Returns `{"data": []}` — **not** a 404 — when the caller has no seller profile.
 
 **Response `200`**
 
@@ -853,7 +969,7 @@ Payment transactions for the caller's seller profile, newest first. Returns `{"d
 
 #### `GET /api/v2/tickets/sellers/me/payouts/`
 
-Payout records for the caller, newest first. Also returns `[]` when there is no seller profile.
+Payout records for the caller, newest first. **Paginated.** Also returns `[]` when there is no seller profile.
 
 **Response `200`**
 
@@ -984,7 +1100,7 @@ Documented honestly so they can be prioritised. None of these block the happy pa
 
 ### Correctness
 
-5. **The webhook always returns `200`, even when handling failed.** `paystack_webhook` wraps `handle_webhook` in a bare `except`, logs, and returns success. Paystack therefore never retries a failed delivery, so a transient database error silently loses a paid order. The fix is to return a `5xx` on unexpected failure so Paystack retries.
+5. ~~**The webhook always returns `200`, even when handling failed.**~~ **Fixed.** The webhook now returns `500` on unexpected processing failures so Paystack retries delivery.
 
 6. **The webhook's duplicate guard never fires.** `_handle_charge_success` skips processing if a `PaymentTransaction` already exists for the reference — but `TicketService.verify_purchase()` never creates one. The check is dead code. Idempotency currently rests entirely on the `already_confirmed` short-circuit inside `verify_purchase`, which does hold.
 
@@ -1006,4 +1122,4 @@ Documented honestly so they can be prioritised. None of these block the happy pa
 
 ---
 
-*Generated from `tickets/views.py`, `tickets/urls.py`, `tickets/serializers.py`, and `tickets/services/` as of 2026-08-10.*
+*Generated from `tickets/views.py`, `tickets/urls.py`, `tickets/serializers.py`, and `tickets/services/` as of 2026-11-06.*

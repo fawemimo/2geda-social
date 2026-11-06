@@ -4,8 +4,6 @@ import logging
 from decimal import Decimal
 from typing import Mapping
 
-from django.conf import settings
-
 from clients.payments import (
     PaymentError,
     PaymentEventType,
@@ -40,7 +38,7 @@ class PaymentService:
                 email=email,
                 amount=amount,
                 reference=reference,
-                callback_url=getattr(settings, "PAYSTACK_CALLBACK_URL", ""),
+                callback_url="",
                 metadata=metadata,
             )
         except PaymentError as exc:
@@ -77,14 +75,36 @@ class PaymentService:
 
     @staticmethod
     def _handle_charge_success(event: WebhookEvent) -> None:
+        from tickets.models import TicketPurchase
         from tickets.services.ticket_service import TicketService
 
         if not event.reference:
             return
 
-
-        TicketService.verify_purchase(event.reference)
+        result = TicketService.verify_purchase(event.reference)
         logger.info("Webhook payment.succeeded processed: %s", event.reference)
+
+        if result.get("status") == "confirmed":
+            purchase = TicketPurchase.objects.filter(
+                transaction_ref=event.reference,
+            ).select_related("event", "buyer").first()
+            if purchase:
+                from accounts.tasks import send_user_push_notification
+                send_user_push_notification.delay(
+                    user_id=str(purchase.buyer_id),
+                    title="Tickets Confirmed",
+                    body=(
+                        f"Your payment was successful! {purchase.quantity} ticket(s) "
+                        f"for \"{purchase.event.title[:50]}\" have been issued."
+                    ),
+                    data={
+                        "type": "ticket_purchase_confirmed",
+                        "event_id": str(purchase.event_id),
+                        "purchase_id": str(purchase.id),
+                        "reference": event.reference,
+                        "quantity": purchase.quantity,
+                    },
+                )
 
     @staticmethod
     def _handle_charge_failed(event: WebhookEvent) -> None:

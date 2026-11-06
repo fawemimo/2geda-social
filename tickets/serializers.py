@@ -238,6 +238,37 @@ class TicketSerializer(serializers.ModelSerializer):
         ]
 
 
+class BuyerPurchaseHistorySerializer(serializers.ModelSerializer):
+    event_title = serializers.CharField(source="event.title", read_only=True)
+    event_id = serializers.UUIDField(source="event.id", read_only=True)
+    seller_name = serializers.CharField(
+        source="event.seller.business_name", read_only=True, allow_null=True
+    )
+    tickets_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TicketPurchase
+        fields = [
+            "id",
+            "event_id",
+            "event_title",
+            "seller_name",
+            "quantity",
+            "total_amount",
+            "fees_amount",
+            "currency",
+            "payment_status",
+            "transaction_ref",
+            "reserved_until",
+            "tickets_count",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_tickets_count(self, obj):
+        return obj.tickets.filter(status="sold").count()
+
+
 class TicketPurchaseInitializeSerializer(serializers.Serializer):
     event_id = serializers.UUIDField()
     price_tier_id = serializers.UUIDField()
