@@ -161,6 +161,12 @@ class PollConsumer(AsyncJsonWebsocketConsumer):
     async def poll_event(self, event: dict):
         await self.send_json(event)
 
+    async def poll_closed(self, event: dict):
+        await self.send_json(event)
+
+    async def poll_expired(self, event: dict):
+        await self.send_json(event)
+
     async def _error(self, code: str, message: str | None = None) -> None:
         await self.send_json({"type": "error", "code": code, "message": message or code})
 
