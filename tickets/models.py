@@ -16,6 +16,7 @@ from utils.enum import (
     EventStatus,
     EventVisibility,
     PaymentStatus,
+    PayoutStatus,
     PriceTag,
     PricingMode,
     SellerStatus,
@@ -237,7 +238,7 @@ class Event(BaseModel):
 
     # Denormalised counters
     total_tickets_sold = models.PositiveIntegerField(default=0)
-    total_revenue = models.DecimalField(max_digits=15, decimal_places=2, default=0.00)
+    total_revenue = models.DecimalField(max_digits=25, decimal_places=2, default=0.00)
     tickets_available = models.PositiveIntegerField(default=0)
     tickets_reserved = models.PositiveIntegerField(default=0)
 
@@ -536,8 +537,8 @@ class Payout(UUIDPrimaryKeyMixin, TimestampMixin):
 
     status = models.CharField(
         max_length=20,
-        choices=PaymentStatus.choices(),
-        default=PaymentStatus.PENDING.value,
+        choices=PayoutStatus.choices(),
+        default=PayoutStatus.REQUESTED.value,
         db_index=True,
     )
     payout_ref = models.CharField(
@@ -545,7 +546,22 @@ class Payout(UUIDPrimaryKeyMixin, TimestampMixin):
         unique=True,
         db_index=True,
     )
+
+    bank_name = models.CharField(max_length=200, blank=True)
+    account_number = models.CharField(max_length=30, blank=True)
+    account_name = models.CharField(max_length=200, blank=True)
+
+    requested_at = models.DateTimeField(null=True, blank=True)
     paid_at = models.DateTimeField(null=True, blank=True)
+
+    processed_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="processed_payouts",
+    )
+    admin_notes = models.TextField(blank=True)
 
     class Meta:
         db_table = "tickets_payout"

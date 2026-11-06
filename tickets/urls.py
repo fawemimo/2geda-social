@@ -24,6 +24,11 @@ urlpatterns = [
         name="seller-payouts",
     ),
     path(
+        "sellers/me/payouts/request/",
+        views.PayoutRequestView.as_view(),
+        name="payout-request",
+    ),
+    path(
         "sellers/me/report/download/",
         views.SellerReportDownloadView.as_view(),
         name="seller-report-download",
@@ -32,6 +37,16 @@ urlpatterns = [
         "admin/sellers/<uuid:pk>/review/",
         views.SellerApprovalView.as_view(),
         name="seller-review",
+    ),
+    path(
+        "admin/payouts/",
+        views.AdminPayoutView.as_view(),
+        name="admin-payouts",
+    ),
+    path(
+        "admin/payouts/<uuid:pk>/<str:action_type>/",
+        views.AdminPayoutActionView.as_view(),
+        name="admin-payout-action",
     ),
     path(
         "buy/initialize/",

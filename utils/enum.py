@@ -472,6 +472,17 @@ class TransactionType(Enum):
         return [(status.value, status.name.replace("_", " ").title()) for status in cls]
 
 
+class PayoutStatus(Enum):
+    REQUESTED = "requested"
+    PROCESSING = "processing"
+    PAID = "paid"
+    REJECTED = "rejected"
+
+    @classmethod
+    def choices(cls):
+        return [(status.value, status.name.replace("_", " ").title()) for status in cls]
+
+
 # ── Advertisements ───────────────────────────────────────────────────────────
 
 

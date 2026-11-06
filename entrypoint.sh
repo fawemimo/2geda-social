@@ -21,7 +21,7 @@ psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d postgres -c "SELECT 1 FROM pg_da
   psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d postgres -c "CREATE DATABASE $POSTGRES_DB"
 }
 
-# Run migrations
+# # Run migrations
 # echo "Running makemigrations..."
 # python manage.py makemigrations
 
@@ -35,8 +35,8 @@ echo "Running sync of variables to DB"
 python manage.py sync_config
 
 # Create default superuser if env vars are set
-echo "Ensuring superuser exists..."
-python manage.py create_default_superuser
+# echo "Ensuring superuser exists..."
+# python manage.py create_default_superuser
 
 # Collect static files
 echo "Collecting static files..."

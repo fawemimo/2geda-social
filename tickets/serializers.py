@@ -387,6 +387,9 @@ class PayoutSerializer(serializers.ModelSerializer):
     event_title = serializers.CharField(
         source="event.title", read_only=True, allow_null=True
     )
+    processed_by_username = serializers.CharField(
+        source="processed_by.username", read_only=True, allow_null=True
+    )
 
     class Meta:
         model = Payout
@@ -400,9 +403,32 @@ class PayoutSerializer(serializers.ModelSerializer):
             "currency",
             "status",
             "payout_ref",
+            "bank_name",
+            "account_number",
+            "account_name",
+            "requested_at",
             "paid_at",
+            "processed_by",
+            "processed_by_username",
+            "admin_notes",
             "created_at",
         ]
+        read_only_fields = [
+            "id", "payout_ref", "amount", "fees_deducted", "status",
+            "requested_at", "paid_at", "processed_by", "admin_notes",
+            "created_at",
+        ]
+
+
+class PayoutRequestSerializer(serializers.Serializer):
+    event_id = serializers.UUIDField()
+    bank_name = serializers.CharField(max_length=200)
+    account_number = serializers.CharField(max_length=30)
+    account_name = serializers.CharField(max_length=200)
+
+
+class PayoutActionSerializer(serializers.Serializer):
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
 
 
 class TicketVerifySerializer(serializers.Serializer):

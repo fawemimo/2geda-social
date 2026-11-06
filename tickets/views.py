@@ -17,19 +17,21 @@ from tickets.models import (
     Ticket,
 )
 from tickets.serializers import (
+    BuyerPurchaseHistorySerializer,
     DisputeCreateSerializer,
     DisputeResolveSerializer,
     DisputeSerializer,
     EventCategorySerializer,
     EventListSerializer,
     EventSerializer,
+    PayoutActionSerializer,
+    PayoutRequestSerializer,
     PayoutSerializer,
     PaymentTransactionSerializer,
     PriceTierReadSerializer,
     SellerApprovalSerializer,
     SellerApplicationSerializer,
     SellerProfileSerializer,
-    BuyerPurchaseHistorySerializer,
     TicketPurchaseInitializeSerializer,
     TicketPurchaseVerifySerializer,
     TicketSerializer,
@@ -44,6 +46,7 @@ from tickets.services.exceptions import (
     PricingMismatch,
     SellerNotApproved,
     SellerSuspended,
+    ServiceError,
 )
 from tickets.services.payment_service import PaymentService
 from tickets.services.report_service import ReportService
@@ -695,13 +698,119 @@ class SellerPayoutView(PaginatedAPIMixin, APIView):
             return APIResponse.success(data=[])
         payouts = Payout.objects.filter(
             seller=profile,
-        ).order_by("-created_at")
+        ).select_related("event", "processed_by").order_by("-created_at")
         page = self.paginate_queryset(payouts)
         if page is not None:
             serializer = PayoutSerializer(page, many=True)
             return self.get_paginated_response(serializer.data)
         serializer = PayoutSerializer(payouts, many=True)
         return APIResponse.success(data=serializer.data)
+
+
+class PayoutRequestView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from tickets.services.payout_service import PayoutService
+
+        profile = SellerService.get_for_user(request.user)
+        if not profile:
+            return APIResponse.error(
+                message="Seller profile not found.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        try:
+            SellerService.require_approved(profile)
+        except (SellerNotApproved, SellerSuspended) as e:
+            return APIResponse.error(
+                message=e.message, code=e.code, status_code=e.status_code,
+            )
+
+        serializer = PayoutRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        event = get_object_or_404(
+            Event, id=serializer.validated_data["event_id"], is_deleted=False,
+        )
+
+        try:
+            payout = PayoutService.request_payout(
+                seller=profile,
+                event=event,
+                bank_name=serializer.validated_data["bank_name"],
+                account_number=serializer.validated_data["account_number"],
+                account_name=serializer.validated_data["account_name"],
+            )
+            return APIResponse.success(
+                message="Payout request submitted. You will be notified once it is processed.",
+                data=PayoutSerializer(payout).data,
+                status_code=status.HTTP_201_CREATED,
+            )
+        except ServiceError as e:
+            return APIResponse.error(
+                message=e.message, code=e.code, status_code=e.status_code,
+            )
+
+
+class AdminPayoutView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        payouts = Payout.objects.select_related(
+            "seller", "seller__user", "event", "processed_by",
+        ).order_by("-created_at")
+
+        status_filter = request.query_params.get("status")
+        if status_filter:
+            payouts = payouts.filter(status=status_filter)
+
+        paginator = StandardPagination()
+        page = paginator.paginate_queryset(payouts, request, view=self)
+        if page is not None:
+            serializer = PayoutSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+        serializer = PayoutSerializer(payouts, many=True)
+        return APIResponse.success(data=serializer.data)
+
+
+class AdminPayoutActionView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def post(self, request, pk, action_type):
+        from tickets.services.payout_service import PayoutService
+
+        payout = get_object_or_404(Payout, id=pk)
+        serializer = PayoutActionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            if action_type == "paid":
+                payout = PayoutService.mark_paid(
+                    payout=payout,
+                    admin=request.user,
+                    notes=serializer.validated_data.get("notes", ""),
+                )
+                msg = "Payout marked as paid. Seller has been notified."
+            elif action_type == "reject":
+                payout = PayoutService.reject_payout(
+                    payout=payout,
+                    admin=request.user,
+                    notes=serializer.validated_data.get("notes", ""),
+                )
+                msg = "Payout rejected. Seller has been notified."
+            else:
+                return APIResponse.error(
+                    message="Invalid action. Use 'paid' or 'reject'.",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                )
+            return APIResponse.success(
+                message=msg,
+                data=PayoutSerializer(payout).data,
+            )
+        except ServiceError as e:
+            return APIResponse.error(
+                message=e.message, code=e.code, status_code=e.status_code,
+            )
 
 
 @api_view(["POST"])

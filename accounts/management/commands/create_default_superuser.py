@@ -9,9 +9,9 @@ class Command(BaseCommand):
     help = "Create a default superuser from environment variables if one does not exist."
 
     def handle(self, *args, **options):
-        email = os.environ.get("DJANGO_SUPERUSER_EMAIL", "dev.kolawole@2geda.com")
-        password = os.environ.get("DJANGO_SUPERUSER_PASSWORD", "dev.kolawole@2geda.com@1234")
-        username = os.environ.get("DJANGO_SUPERUSER_USERNAME", "dev.kolawole")
+        email = os.environ.get("DJANGO_SUPERUSER_EMAIL", None)
+        password = os.environ.get("DJANGO_SUPERUSER_PASSWORD", None)
+        username = os.environ.get("DJANGO_SUPERUSER_USERNAME", None)
 
         if not all([email, password, username]):
             self.stdout.write(self.style.WARNING(

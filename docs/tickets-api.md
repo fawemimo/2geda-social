@@ -38,6 +38,7 @@ The Tickets module turns 2geda from a social network into a **marketplace**. It 
   - [Disputes](#6-disputes)
   - [Reports and money](#7-reports-and-money)
   - [Paystack webhook](#8-paystack-webhook)
+- [Payout flow](#payout-flow)
 - [Enumerations](#enumerations)
 - [Error codes](#error-codes)
 - [Known gaps and risks](#known-gaps-and-risks)
@@ -976,7 +977,7 @@ Payout records for the caller, newest first. **Paginated.** Also returns `[]` wh
 ```json
 {
   "status": true,
-  "message": "Request completed successfully.",
+  "message": "Payouts fetched successfully.",
   "data": [
     {
       "id": "c3d4e5f6-7788-499a-8bbc-ddeeff001122",
@@ -986,14 +987,141 @@ Payout records for the caller, newest first. **Paginated.** Also returns `[]` wh
       "amount": "1219000.00",
       "fees_deducted": "61000.00",
       "currency": "NGN",
-      "status": "pending",
+      "status": "requested",
       "payout_ref": "PO-C3FF5E50E99F50EE",
+      "bank_name": "GTBank",
+      "account_number": "0123456789",
+      "account_name": "Lagos Live Events Ltd",
+      "requested_at": "2026-08-13T09:00:00Z",
       "paid_at": null,
+      "processed_by": null,
+      "processed_by_username": null,
+      "admin_notes": "",
       "created_at": "2026-08-13T09:00:00Z"
     }
   ]
 }
 ```
+
+#### `POST /api/v2/tickets/sellers/me/payouts/request/`
+
+Request a payout for a completed/ended event. **Auth required, seller must be approved.** The event must have ended (`ends_at` in the past) or be in `completed`/`cancelled` status. Only one pending/processing payout per event is allowed.
+
+**Request**
+
+```json
+{
+  "event_id": "c1a2b3d4-0000-4111-8222-333344445555",
+  "bank_name": "GTBank",
+  "account_number": "0123456789",
+  "account_name": "Lagos Live Events Ltd"
+}
+```
+
+**Response `201`**
+
+```json
+{
+  "status": true,
+  "message": "Payout request submitted. You will be notified once it is processed.",
+  "data": {
+    "id": "c3d4e5f6-7788-499a-8bbc-ddeeff001122",
+    "seller": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "event": "c1a2b3d4-0000-4111-8222-333344445555",
+    "event_title": "Afrobeats Night 2026",
+    "amount": "1219000.00",
+    "fees_deducted": "61000.00",
+    "currency": "NGN",
+    "status": "requested",
+    "payout_ref": "PO-C3FF5E50E99F50EE",
+    "bank_name": "GTBank",
+    "account_number": "0123456789",
+    "account_name": "Lagos Live Events Ltd",
+    "requested_at": "2026-08-13T09:00:00Z",
+    "paid_at": null,
+    "processed_by": null,
+    "processed_by_username": null,
+    "admin_notes": "",
+    "created_at": "2026-08-13T09:00:00Z"
+  }
+}
+```
+
+**Errors**
+
+| Status | `code` | When |
+| --- | --- | --- |
+| `400` | `event_not_ended` | Event has not ended yet |
+| `400` | `payout_already_requested` | A pending/processing payout already exists for this event |
+| `400` | `no_payout_amount` | No revenue to pay out |
+| `403` | `not_event_owner` | Seller does not own this event |
+| `403` | `seller_not_approved` / `seller_suspended` | Seller account issue |
+
+#### `GET /api/v2/tickets/admin/payouts/`
+
+List all payout requests. **Admin only, paginated.** Optionally filter by status with `?status=requested`.
+
+#### `POST /api/v2/tickets/admin/payouts/{id}/paid/`
+
+Mark a payout as paid after manual bank disbursement. **Admin only.** Triggers email, push notification, and in-app notification to the seller.
+
+**Request**
+
+```json
+{ "notes": "Disbursed via GTBank corporate transfer." }
+```
+
+**Response `200`** — `{"message": "Payout marked as paid. Seller has been notified.", "data": { ... }}`
+**Response `409`** — `payout_already_paid`
+
+#### `POST /api/v2/tickets/admin/payouts/{id}/reject/`
+
+Reject a payout request. **Admin only.** Notifies the seller with the reason.
+
+**Request**
+
+```json
+{ "notes": "Event revenue under dispute — payout on hold." }
+```
+
+**Response `200`** — `{"message": "Payout rejected. Seller has been notified.", "data": { ... }}`
+
+### Payout flow
+
+```
+ SELLER                     2GEDA API                    ADMIN
+   │                            │                           │
+   │ POST .../payouts/request/  │                           │
+   │  { event_id, bank_name,   │                           │
+   │    account_number,         │                           │
+   │    account_name }          │                           │
+   ├───────────────────────────>│                           │
+   │                            │ validate:                 │
+   │                            │  - seller owns event      │
+   │                            │  - event has ended        │
+   │                            │  - no duplicate request   │
+   │                            │  - revenue > 0            │
+   │                            │                           │
+   │<─── payout (requested) ────┤                           │
+   │                            │                           │
+   │                            │  GET /admin/payouts/      │
+   │                            │<──────────────────────────┤
+   │                            │──── payout list ─────────>│
+   │                            │                           │
+   │                            │  (manual bank transfer)   │
+   │                            │                           │
+   │                            │ POST .../payouts/{id}/paid/
+   │                            │<──────────────────────────┤
+   │                            │  → push notification      │
+   │<── "Payout Sent!" ────────│  → in-app notification    │
+   │<── email: payout details ──┤  → email                  │
+   │                            │──── payout (paid) ───────>│
+```
+
+**Notifications on payout paid:**
+- **Push:** "Your payout of ₦X for "Event Title" has been disbursed to BankName — AccountNumber."
+- **In-app:** Same content, navigates to payout details.
+- **Email:** Full details including bank name, account number, account name, reference, and amount.
 
 ---
 
@@ -1059,6 +1187,7 @@ Handled events:
 | `TicketStatus` | `reserved`, `sold`, `refunded`, `cancelled` |
 | `PaymentStatus` | `pending`, `successful`, `failed`, `refunded`, `partially_refunded` |
 | `TransactionType` | `purchase`, `refund`, `fee`, `payout` |
+| `PayoutStatus` | `requested`, `processing`, `paid`, `rejected` |
 | `DisputeReason` | `ticket_not_delivered`, `event_cancelled`, `wrong_description`, `refund_request`, `other` |
 | `DisputeStatus` | `open`, `under_review`, `resolved_buyer`, `resolved_seller`, `closed` |
 
@@ -1079,6 +1208,12 @@ Typed service errors from `tickets/services/exceptions.py` — these arrive with
 | `duplicate_transaction` | 400 | Transaction already processed |
 | `dispute_already_resolved` | 409 | Dispute is already resolved or closed |
 | `event_link_expired` | 400 | Event link no longer valid |
+| `not_event_owner` | 403 | Seller does not own this event |
+| `event_not_ended` | 400 | Event has not ended yet — payout not allowed |
+| `payout_already_requested` | 400 | A pending/processing payout already exists for this event |
+| `no_payout_amount` | 400 | No revenue available for payout |
+| `payout_already_paid` | 409 | Payout has already been marked as paid |
+| `invalid_payout_status` | 400 | Payout is not in a valid state for this action |
 
 Untyped failures (`SellerApplyView`, `EventViewSet.create`, `DisputeViewSet.create`) catch broad `Exception` and return `400` with the raw exception string in `message` and **no** `code`. Clients should not parse those strings.
 
