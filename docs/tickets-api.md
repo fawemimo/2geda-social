@@ -107,7 +107,7 @@ Every JSON response uses the project-wide envelope from `utils/responses.py`.
 
 Page size defaults to 100, override with `?page_size=` up to 200. Navigate with `?page=`.
 
-**Paginated endpoints:** `GET /events/`, `GET /events/public/`, `GET /categories/`, `GET /disputes/`, `GET /buy/my-tickets/`, `GET /buy/transactions/`, `GET /sellers/me/transactions/`, `GET /sellers/me/payouts/`.
+**Paginated endpoints:** `GET /events/`, `GET /events/public/`, `GET /categories/`, `GET /disputes/`, `GET /buy/my-tickets/`, `GET /buy/transactions/`, `GET /sellers/me/transactions/`, `GET /sellers/me/payouts/`, `GET /sellers/me/insights/purchases/`.
 
 Two endpoints break the envelope deliberately and stream **raw CSV** instead: the two report downloads.
 
@@ -936,6 +936,103 @@ Full transaction ledger as CSV. **Auth required.**
 Reference,Type,Event,Amount,Fees,Status,Buyer,Notes,Created At
 REF-2041548BCAC14A048BF1,purchase,Afrobeats Night 2026,20000.00,1000.00,successful,ada,,2026-08-10T11:02:31+00:00
 ```
+
+#### `GET /api/v2/tickets/sellers/me/insights/`
+
+Full financial dashboard for the authenticated seller. Returns aggregate revenue, commission breakdown, payout status, unsettled balance, and per-event financials. **Auth required**, returns `404` if no seller profile.
+
+**Response `200`**
+
+```json
+{
+  "status": true,
+  "message": "Financial insights fetched successfully.",
+  "data": {
+    "overview": {
+      "commission_rate": 5.0,
+      "total_gross_revenue": 4820000.0,
+      "total_commission": 241000.0,
+      "total_net_revenue": 4579000.0,
+      "total_fees_collected_from_buyers": 96400.0,
+      "total_refunds": 60000.0,
+      "refund_count": 3,
+      "total_tickets_sold": 482,
+      "total_purchases": 310
+    },
+    "payouts": {
+      "total_paid_out": 3000000.0,
+      "total_pending": 1219000.0,
+      "total_rejected": 0.0,
+      "unsettled_balance": 300000.0,
+      "payout_count": 4
+    },
+    "events_breakdown": [
+      {
+        "event_id": "c1a2b3d4-0000-4111-8222-333344445555",
+        "title": "Afrobeats Night 2026",
+        "status": "completed",
+        "starts_at": "2026-08-10T18:00:00+01:00",
+        "ends_at": "2026-08-11T02:00:00+01:00",
+        "tickets_sold": 128,
+        "tickets_available": 272,
+        "tickets_refunded": 3,
+        "disputes": 1,
+        "gross_revenue": 1280000.0,
+        "commission": 64000.0,
+        "net_revenue": 1216000.0
+      }
+    ]
+  }
+}
+```
+
+**Key fields:**
+
+| Field | Meaning |
+| --- | --- |
+| `total_gross_revenue` | Sum of all successful purchase amounts |
+| `total_commission` | `gross × commission_rate / 100` |
+| `total_net_revenue` | `gross − commission` (what the seller earns) |
+| `total_fees_collected_from_buyers` | Service fees paid by buyers (not deducted from seller) |
+| `unsettled_balance` | `net_revenue − paid_out − refunds` (still owed to seller) |
+
+#### `GET /api/v2/tickets/sellers/me/insights/purchases/`
+
+Every successful ticket purchase for the seller's events, with per-purchase settlement breakdown. **Paginated, auth required.** Supports `?event_id=` filter to narrow to a single event.
+
+**Response `200`**
+
+```json
+{
+  "status": true,
+  "message": "Purchase insights fetched successfully.",
+  "data": [
+    {
+      "id": "a1b2c3d4-5566-4778-8990-aabbccddeeff",
+      "buyer": "9b2c1d4e-1111-4a2b-9c3d-5e6f7a8b9c0d",
+      "buyer_username": "ada",
+      "buyer_email": "ada@example.com",
+      "event_id": "c1a2b3d4-0000-4111-8222-333344445555",
+      "event_title": "Afrobeats Night 2026",
+      "price_tier": { "tag": "regular", "unit_price": 10000.0 },
+      "quantity": 2,
+      "total_amount": "20000.00",
+      "fees_amount": "400.00",
+      "currency": "NGN",
+      "payment_status": "successful",
+      "transaction_ref": "REF-2041548BCAC14A048BF1",
+      "commission_rate": 5.0,
+      "commission_amount": 1000.0,
+      "settlement_amount": 19000.0,
+      "created_at": "2026-08-10T11:02:31Z"
+    }
+  ]
+}
+```
+
+**Per-purchase settlement math:** `settlement_amount = total_amount − (total_amount × commission_rate / 100)`.
+
+> This endpoint contains buyer emails — treat it as personal data.
 
 #### `GET /api/v2/tickets/sellers/me/transactions/`
 

@@ -431,5 +431,63 @@ class PayoutActionSerializer(serializers.Serializer):
     notes = serializers.CharField(required=False, allow_blank=True, default="")
 
 
+class SellerPurchaseInsightSerializer(serializers.ModelSerializer):
+    buyer_username = serializers.CharField(source="buyer.username", read_only=True)
+    buyer_email = serializers.EmailField(source="buyer.email", read_only=True)
+    event_id = serializers.UUIDField(source="event.id", read_only=True)
+    event_title = serializers.CharField(source="event.title", read_only=True)
+    price_tier = serializers.SerializerMethodField()
+    commission_rate = serializers.SerializerMethodField()
+    commission_amount = serializers.SerializerMethodField()
+    settlement_amount = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TicketPurchase
+        fields = [
+            "id",
+            "buyer",
+            "buyer_username",
+            "buyer_email",
+            "event_id",
+            "event_title",
+            "price_tier",
+            "quantity",
+            "total_amount",
+            "fees_amount",
+            "currency",
+            "payment_status",
+            "transaction_ref",
+            "commission_rate",
+            "commission_amount",
+            "settlement_amount",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_price_tier(self, obj):
+        ticket = obj.tickets.first()
+        if ticket and ticket.price_tier:
+            return {
+                "tag": ticket.price_tier.price_tag,
+                "unit_price": float(ticket.price_tier.price),
+            }
+        return None
+
+    def get_commission_rate(self, obj):
+        from decimal import Decimal
+        return float(self.context.get("commission_rate", Decimal("0")))
+
+    def get_commission_amount(self, obj):
+        from decimal import Decimal
+        rate = self.context.get("commission_rate", Decimal("0"))
+        return float(obj.total_amount * rate / Decimal("100"))
+
+    def get_settlement_amount(self, obj):
+        from decimal import Decimal
+        rate = self.context.get("commission_rate", Decimal("0"))
+        commission = obj.total_amount * rate / Decimal("100")
+        return float(obj.total_amount - commission)
+
+
 class TicketVerifySerializer(serializers.Serializer):
     code = serializers.CharField()

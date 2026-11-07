@@ -32,6 +32,7 @@ from tickets.serializers import (
     SellerApprovalSerializer,
     SellerApplicationSerializer,
     SellerProfileSerializer,
+    SellerPurchaseInsightSerializer,
     TicketPurchaseInitializeSerializer,
     TicketPurchaseVerifySerializer,
     TicketSerializer,
@@ -669,6 +670,64 @@ class SellerReportDownloadView(APIView):
 
 
 
+class SellerFinancialInsightsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        profile = SellerService.get_for_user(request.user)
+        if not profile:
+            return APIResponse.error(
+                message="Seller profile not found.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        insights = ReportService.seller_financial_insights(profile)
+        return APIResponse.success(
+            message="Financial insights fetched successfully.",
+            data=insights,
+        )
+
+
+class SellerPurchaseInsightsView(PaginatedAPIMixin, APIView):
+    permission_classes = [IsAuthenticated]
+    pagination_message = "Purchase insights fetched successfully."
+
+    def get(self, request):
+        from tickets.models import TicketPurchase
+        from utils.enum import PaymentStatus
+
+        profile = SellerService.get_for_user(request.user)
+        if not profile:
+            return APIResponse.error(
+                message="Seller profile not found.",
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+
+        purchases = TicketPurchase.objects.filter(
+            event__seller=profile,
+            payment_status=PaymentStatus.SUCCESSFUL.value,
+        ).select_related(
+            "buyer", "event",
+        ).prefetch_related(
+            "tickets__price_tier",
+        ).order_by("-created_at")
+
+        event_id = request.query_params.get("event_id")
+        if event_id:
+            purchases = purchases.filter(event_id=event_id)
+
+        payment_status_filter = request.query_params.get("status")
+        if payment_status_filter:
+            purchases = purchases.filter(payment_status=payment_status_filter)
+
+        page = self.paginate_queryset(purchases)
+        ctx = {"commission_rate": profile.commission_rate}
+        if page is not None:
+            serializer = SellerPurchaseInsightSerializer(page, many=True, context=ctx)
+            return self.get_paginated_response(serializer.data)
+        serializer = SellerPurchaseInsightSerializer(purchases, many=True, context=ctx)
+        return APIResponse.success(data=serializer.data)
+
+
 class SellerTransactionView(PaginatedAPIMixin, APIView):
     permission_classes = [IsAuthenticated]
     pagination_message = "Transactions fetched successfully."
@@ -816,12 +875,6 @@ class AdminPayoutActionView(APIView):
 @api_view(["POST"])
 @permission_classes([AllowAny])
 def payment_webhook(request):
-    """Gateway-neutral payment webhook.
-
-    The configured provider verifies its own signature (HMAC for Paystack, a
-    shared secret hash for Flutterwave) and normalises the payload, so this view
-    holds no gateway-specific knowledge.
-    """
     from clients.payments import InvalidWebhookSignature, PaymentError
 
     try:

@@ -146,7 +146,9 @@ LOGIN_LOCKOUT_SECONDS = int(os.getenv("LOGIN_LOCKOUT_SECONDS", "900"))
 #  paystack or flutterwave
 PAYMENT_PROVIDER = os.getenv("PAYMENT_PROVIDER", "paystack")
 
-PAYSTACK_SECRET_KEY = os.getenv("PAYSTACK_SECRET_KEY", "")
+PAYSTACK_SECRET_KEY = os.getenv(
+    "PAYSTACK_SECRET_KEY", "sk_test_db3c92d25c6cdf2de3aef6a08f7cbaa535a9e378"
+)
 PAYSTACK_PUBLIC_KEY = os.getenv(
     "PAYSTACK_PUBLIC_KEY", "pk_test_a4e9bc2878eece40fabfdc0bdc930221bb73c6ff"
 )

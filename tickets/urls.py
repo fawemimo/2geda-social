@@ -29,6 +29,16 @@ urlpatterns = [
         name="payout-request",
     ),
     path(
+        "sellers/me/insights/",
+        views.SellerFinancialInsightsView.as_view(),
+        name="seller-insights",
+    ),
+    path(
+        "sellers/me/insights/purchases/",
+        views.SellerPurchaseInsightsView.as_view(),
+        name="seller-insights-purchases",
+    ),
+    path(
         "sellers/me/report/download/",
         views.SellerReportDownloadView.as_view(),
         name="seller-report-download",
@@ -98,13 +108,7 @@ urlpatterns = [
         "webhook/payment/",
         views.payment_webhook,
         name="payment-webhook",
-    ),
-    # Kept so an existing Paystack dashboard configuration keeps working.
-    path(
-        "webhook/paystack/",
-        views.payment_webhook,
-        name="paystack-webhook",
-    ),
+    )
 ]
 
 urlpatterns += router.urls

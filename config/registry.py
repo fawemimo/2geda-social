@@ -315,7 +315,7 @@ SPECS: tuple[SettingSpec, ...] = (
         "PAYSTACK_CALLBACK_URL",
         CATEGORY_PAYMENTS,
         "string",
-        "sk_test_db3c92d25c6cdf2de3aef6a08f7cbaa535a9e378",
+        "",
     ),
     SettingSpec(
         "PAYSTACK_PUBLIC_KEY",
