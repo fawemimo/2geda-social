@@ -1,17 +1,3 @@
-"""Azure Blob Storage backend.
-
-Configure with either:
-
-    AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=...
-
-or the account name plus key:
-
-    AZURE_STORAGE_ACCOUNT_NAME=myaccount
-    AZURE_STORAGE_ACCOUNT_KEY=...
-    AZURE_STORAGE_CONTAINER=media
-    AZURE_STORAGE_CUSTOM_DOMAIN=https://cdn.example.net 
-"""
-
 from __future__ import annotations
 
 import logging

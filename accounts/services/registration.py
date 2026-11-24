@@ -14,6 +14,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from accounts.models import User, UserProfile
+from clients.messaging.base import Channel
 from utils.enum import OTPPurpose, PointRewardingMaps
 
 from .exceptions import (
@@ -157,7 +158,7 @@ class RegistrationService:
 
         from accounts.tasks import hash_pending_password as _hash_pending_password
         _hash_pending_password.delay(identifier=identifier, raw_password=password)
-
+        
         if email:
             
             from accounts.tasks import send_otp_email as _send_otp_email

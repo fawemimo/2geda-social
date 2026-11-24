@@ -596,6 +596,31 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
             },
         )
 
+        # Websocket signalling cannot reach a closed app. Wake the recipient
+        # with a push when they do not have an active websocket connection.
+        is_online = await database_sync_to_async(cache.get)(
+            f"{PRESENCE_CACHE_PREFIX}{peer_id}"
+        )
+        if not is_online:
+            try:
+                from accounts.tasks import send_user_push_notification
+
+                caller_name = self.user.username or "Someone"
+                send_user_push_notification.delay(
+                    user_id=str(peer_id),
+                    title=f"Incoming {call_type} call",
+                    body=f"{caller_name} is calling you",
+                    data={
+                        "type": "incoming_call",
+                        "caller_id": str(self.user.id),
+                        "caller_username": caller_name,
+                        "conversation_id": str(conversation_id),
+                        "call_type": call_type,
+                    },
+                )
+            except Exception:
+                logger.exception("Failed to queue call push notification for user=%s", peer_id)
+
     async def _handle_call_answer(self, content: dict):
         peer_id = content.get("peer_id")
         sdp = content.get("sdp")

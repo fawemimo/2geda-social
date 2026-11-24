@@ -95,15 +95,16 @@ def send_otp_message(
     max_retries=5,
     acks_late=True,
 )
-def send_otp_sms(*, to: str, code: str, purpose: str) -> None:
-    from clients.messaging import Channel, MessagingService
+def send_otp_sms(*, to: str, code: str, purpose: str, channel: str | None = None) -> None:
+    from clients.messaging import MessagingService
 
-    result = MessagingService().send_otp(to=to, code=code, channel=Channel.SMS)
+    result = MessagingService().send_otp(to=to, code=code, channel=channel)
+    logger.info(f"message provider response : {result}")
     logger.info(
         "OTP dispatched (purpose=%s channel=%s provider=%s)",
         purpose,
         result.channel,
-        result.provider,
+        result.provider
     )
 
 
@@ -120,7 +121,7 @@ def send_welcome_email(*, to: str, username: str) -> None:
             subject="Welcome to 2geda",
             body=f"Hi {username}, welcome to the platform!",
             template="welcome",
-            context={"username": username},
+            context={"username": username}
         )
     )
 
