@@ -57,6 +57,8 @@ fi
 
 echo "🚀 Services started and static assets deployed successfully."
 
+
+
 # #!/bin/bash
 
 # echo "Pulling latest code..."

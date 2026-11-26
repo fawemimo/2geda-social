@@ -90,7 +90,8 @@ services:
       POSTGRES_PORT: 5432
       CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/status/"]
+      # The root endpoint is the application's liveness check (see core/urls.py).
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/"]
       interval: 10s
       timeout: 5s
       retries: 5
