@@ -154,6 +154,7 @@ class CallType(Enum):
 
 
 class CallStatus(Enum):
+    RINGING = "ringing"
     MISSED = "missed"
     ANSWERED = "answered"
     DECLINED = "declined"

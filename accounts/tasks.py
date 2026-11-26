@@ -270,6 +270,26 @@ def send_user_push_notification(
         logger.exception("Failed to send push to tokens for user %s", user_id)
 
 
+@shared_task(name="accounts.tasks.send_incoming_call_push", acks_late=True)
+def send_incoming_call_push(*, user_id: str, data: dict) -> None:
+    """Route call invites to platform-specific tokens."""
+    from accounts.models import UserDevice
+    from clients.apple.voip import AppleVoIPPushAPI
+    from clients.expo.notifications import ExpoNotificationAPI
+
+    devices = UserDevice.objects.filter(
+        user_id=user_id, is_deleted=False, is_trusted=True,
+    )
+    for device in devices:
+        if device.platform == "ios" and device.voip_token:
+            AppleVoIPPushAPI.send(device.voip_token, data)
+        elif device.platform == "android" and device.push_token:
+            ExpoNotificationAPI.send_notification(
+                device.push_token, None, None, data=data,
+                priority="high", ttl=40,
+            )
+
+
 # Delete an old/replaced profile image from S3 + DB and notify the user.
 @shared_task(
     name="accounts.tasks.cleanup_old_profile_image",

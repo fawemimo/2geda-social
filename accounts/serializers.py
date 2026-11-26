@@ -15,6 +15,7 @@ class DevicePayloadSerializer(serializers.Serializer):
     os_version = serializers.CharField(max_length=30, required=False, allow_blank=True)
     app_version = serializers.CharField(max_length=20, required=False, allow_blank=True)
     push_token = serializers.CharField(required=False, allow_blank=True)
+    voip_token = serializers.CharField(required=False, allow_blank=True)
 
 
 #: How the caller may ask for a phone OTP. Omitting it means "no preference",

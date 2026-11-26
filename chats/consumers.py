@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from datetime import timedelta
 
 from channels.db import database_sync_to_async
@@ -16,7 +17,7 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import AccessToken
 
 from utils.enum import CallType
-from chats.models import Conversation, ConversationMember, JoinRequest, Message
+from chats.models import CallLog, Conversation, ConversationMember, JoinRequest, Message
 from chats.serializers import (
     CallLogSerializer,
     ConversationSerializer,
@@ -31,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
-PRESENCE_CACHE_TTL = 300        # 5 min — refreshed by heartbeat
+PRESENCE_CACHE_TTL = 60         # Presence expires shortly after the last heartbeat.
 HEARTBEAT_INTERVAL = 30         # seconds
 PRESENCE_CACHE_PREFIX = "online_user:"
 
@@ -74,11 +75,13 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
             await self._broadcast_presence("presence.online")
 
             online_members = await self._get_online_members()
+            pending_calls = await self._get_pending_calls()
             await self.send_json({
                 "type": "connected",
                 "user_id": user_id,
                 "conversations": list(self.conversation_ids),
                 "online_users": online_members,
+                "pending_calls": pending_calls,
             })
         except Exception:
             logger.exception("WS connect error user=%s", getattr(self.user, "id", "?"))
@@ -579,10 +582,17 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
             return await self._error("missing_call_params")
 
         call_type = call_type if call_type in (CallType.AUDIO.value, CallType.VIDEO.value) else CallType.AUDIO.value
+        call_id = str(uuid.uuid4())
 
         can_call = await self._can_initiate_call(conversation_id, peer_id)
         if not can_call:
             return await self._error("call_not_allowed")
+
+        await self._start_call_log(
+            call_id=call_id, conversation_id=conversation_id,
+            peer_id=peer_id, call_type=call_type, sdp=sdp,
+        )
+        await self.send_json({"type": "call_started", "call_id": call_id})
 
         await self.channel_layer.group_send(
             f"user_{peer_id}",
@@ -592,26 +602,23 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
                 "caller_username": self.user.username,
                 "conversation_id": conversation_id,
                 "call_type": call_type,
+                "call_id": call_id,
                 "sdp": sdp,
             },
         )
 
-        # Websocket signalling cannot reach a closed app. Wake the recipient
-        # with a push when they do not have an active websocket connection.
         is_online = await database_sync_to_async(cache.get)(
             f"{PRESENCE_CACHE_PREFIX}{peer_id}"
         )
         if not is_online:
             try:
-                from accounts.tasks import send_user_push_notification
-
+                from accounts.tasks import send_incoming_call_push
                 caller_name = self.user.username or "Someone"
-                send_user_push_notification.delay(
+                send_incoming_call_push.delay(
                     user_id=str(peer_id),
-                    title=f"Incoming {call_type} call",
-                    body=f"{caller_name} is calling you",
                     data={
                         "type": "incoming_call",
+                        "call_id": call_id,
                         "caller_id": str(self.user.id),
                         "caller_username": caller_name,
                         "conversation_id": str(conversation_id),
@@ -633,6 +640,9 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
             "callee_id": str(self.user.id),
             "sdp": sdp,
         }
+        if content.get("call_id"):
+            relay["call_id"] = str(content["call_id"])
+            await self._set_call_status(content["call_id"], "answered", end_call=False)
         if call_type:
             relay["call_type"] = call_type
         await self.channel_layer.group_send(f"user_{peer_id}", relay)
@@ -658,6 +668,7 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
             return await self._error("missing_call_params")
 
         conversation_id = content.get("conversation_id")
+        call_id = content.get("call_id")
         call_type = content.get("call_type", CallType.AUDIO.value)
         reason = content.get("reason", "ended")
         duration = content.get("duration_seconds", 0)
@@ -666,18 +677,21 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
         status_map = {
             "ended": CallStatus.ANSWERED.value,
             "missed": CallStatus.MISSED.value,
+            "no_answer": CallStatus.MISSED.value,
+            "timeout": CallStatus.MISSED.value,
             "declined": CallStatus.DECLINED.value,
+            "busy": CallStatus.DECLINED.value,
             "cancelled": CallStatus.CANCELLED.value,
         }
         call_status = status_map.get(reason, CallStatus.ANSWERED.value)
 
-        if conversation_id:
-            await self._create_call_log(
-                conversation_id=conversation_id,
-                peer_id=peer_id,
-                call_type=call_type,
-                status=call_status,
-                duration_seconds=duration,
+        if call_id:
+            await self._set_call_status(
+                call_id, call_status, duration_seconds=duration,
+            )
+        elif conversation_id:
+            await self._create_legacy_call_log(
+                conversation_id, peer_id, call_type, call_status, duration,
             )
 
         await self.channel_layer.group_send(
@@ -686,8 +700,26 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
                 "type": "call_ended",
                 "ended_by": str(self.user.id),
                 "reason": reason,
+                "call_id": str(call_id) if call_id else None,
             },
         )
+
+        if call_id and reason in ("missed", "no_answer", "timeout", "cancelled", "declined", "busy"):
+            is_online = await database_sync_to_async(cache.get)(
+                f"{PRESENCE_CACHE_PREFIX}{peer_id}"
+            )
+            if not is_online:
+                from accounts.tasks import send_incoming_call_push
+                original_caller_id = await self._get_call_caller_id(call_id)
+                send_incoming_call_push.delay(
+                    user_id=str(peer_id),
+                    data={
+                        "type": "call_cancelled",
+                        "call_id": str(call_id),
+                        "caller_id": str(original_caller_id or self.user.id),
+                        "conversation_id": str(conversation_id or ""),
+                    },
+                )
 
     async def _handle_video_toggle(self, content: dict):
         peer_id = content.get("peer_id")
@@ -1216,16 +1248,64 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
         }
 
     @database_sync_to_async
-    def _create_call_log(
-        self,
-        conversation_id: str,
-        peer_id: str,
-        call_type: str,
-        status: str,
-        duration_seconds: int = 0,
-    ):
+    def _start_call_log(self, *, call_id, conversation_id, peer_id, call_type, sdp):
+        CallLog.objects.create(
+            id=call_id,
+            conversation_id=conversation_id,
+            caller_id=str(self.user.id),
+            receiver_id=peer_id,
+            call_type=call_type,
+            offer_sdp=sdp,
+            status="ringing",
+            started_at=timezone.now(),
+        )
+
+    @database_sync_to_async
+    def _set_call_status(self, call_id, status, duration_seconds=0, end_call=True):
+        CallLog.objects.filter(
+            models.Q(caller_id=self.user.id) | models.Q(receiver_id=self.user.id),
+            pk=call_id,
+        ).update(
+            status=status,
+            ended_at=timezone.now() if end_call else None,
+            duration_seconds=duration_seconds,
+            offer_sdp="",
+        )
+
+    @database_sync_to_async
+    def _get_pending_calls(self):
+        now = timezone.now()
+        cutoff = now - timedelta(seconds=40)
+        CallLog.objects.filter(
+            receiver_id=self.user.id,
+            status="ringing",
+            started_at__lt=cutoff,
+        ).update(status="missed", ended_at=now, offer_sdp="")
+        calls = CallLog.objects.filter(
+            receiver_id=self.user.id,
+            status="ringing",
+            started_at__gte=cutoff,
+        ).select_related("caller")
+        return [
+            {
+                "call_id": str(call.id),
+                "caller_id": str(call.caller_id),
+                "caller_username": call.caller.username,
+                "conversation_id": str(call.conversation_id),
+                "call_type": call.call_type,
+                "sdp": call.offer_sdp,
+            }
+            for call in calls
+        ]
+
+    @database_sync_to_async
+    def _get_call_caller_id(self, call_id):
+        return CallLog.objects.filter(pk=call_id).values_list("caller_id", flat=True).first()
+
+    @database_sync_to_async
+    def _create_legacy_call_log(self, conversation_id, peer_id, call_type, status, duration):
         ended_at = timezone.now()
-        started_at = ended_at - timedelta(seconds=duration_seconds) if duration_seconds else None
+        started_at = ended_at - timedelta(seconds=duration) if duration else None
         ChatService.create_call_log(
             conversation_id=conversation_id,
             caller_id=str(self.user.id),
@@ -1234,7 +1314,7 @@ class DirectChatConsumer(AsyncJsonWebsocketConsumer):
             status=status,
             started_at=started_at,
             ended_at=ended_at,
-            duration_seconds=duration_seconds,
+            duration_seconds=duration,
         )
 
     @database_sync_to_async

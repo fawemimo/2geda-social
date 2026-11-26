@@ -172,6 +172,12 @@ class CallLogSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class CallDeclineSerializer(serializers.Serializer):
+    caller_id = serializers.UUIDField()
+    conversation_id = serializers.UUIDField()
+    call_id = serializers.UUIDField()
+
+
 class MediaSearchSerializer(serializers.ModelSerializer):
     sender_id = serializers.UUIDField(read_only=True)
     sender_username = serializers.CharField(source="sender.username", read_only=True)

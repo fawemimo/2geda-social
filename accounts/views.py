@@ -158,6 +158,7 @@ class VerifyRegistrationOTPView(APIView):
                     os_version=device_payload.get("os_version", ""),
                     app_version=device_payload.get("app_version", ""),
                     push_token=device_payload.get("push_token", ""),
+                    voip_token=device_payload.get("voip_token", ""),
                 ),
                 ip_address=_client_ip(request),
             )
@@ -624,6 +625,7 @@ class DeviceListCreateView(APIView):
             os_version=data.validated_data.get("os_version", ""),
             app_version=data.validated_data.get("app_version", ""),
             push_token=data.validated_data.get("push_token", ""),
+            voip_token=data.validated_data.get("voip_token", ""),
         )
         device = DeviceService().register(
             user=request.user, payload=payload, ip_address=_client_ip(request)

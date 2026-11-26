@@ -414,6 +414,7 @@ class CallLog(UUIDPrimaryKeyMixin, TimestampMixin):
         choices=CallType.choices(),
         default=CallType.AUDIO.value,
     )
+    offer_sdp = models.TextField(blank=True)
     status = models.CharField(
         max_length=10,
         choices=CallStatus.choices(),

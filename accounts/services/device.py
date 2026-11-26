@@ -23,6 +23,7 @@ class DevicePayload:
     os_version: str = ""
     app_version: str = ""
     push_token: str = ""
+    voip_token: str = ""
 
 
 class DeviceService:
@@ -44,6 +45,8 @@ class DeviceService:
             "app_version": payload.app_version,
             "push_token": payload.push_token,
             "push_token_updated_at": timezone.now() if payload.push_token else None,
+            "voip_token": payload.voip_token,
+            "voip_token_updated_at": timezone.now() if payload.voip_token else None,
             "last_seen_at": timezone.now(),
             "last_ip": ip_address,
             "is_deleted": False,

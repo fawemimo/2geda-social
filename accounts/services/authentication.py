@@ -176,6 +176,8 @@ class AuthenticationService:
             "app_version": payload.get("app_version", "") or "",
             "push_token": payload.get("push_token", "") or "",
             "push_token_updated_at": timezone.now() if payload.get("push_token") else None,
+            "voip_token": payload.get("voip_token", "") or "",
+            "voip_token_updated_at": timezone.now() if payload.get("voip_token") else None,
             "last_seen_at": timezone.now(),
             "last_ip": ip_address,
             "is_deleted": False,

@@ -33,14 +33,22 @@ class PushNotificationService:
         
         try:
             if provider == "expo":
-                return ExpoNotificationAPI.send_notification(token, title, body, data=data)
+                return ExpoNotificationAPI.send_notification(
+                    token, title, body, data=data, **cls._expo_call_options(data)
+                )
             elif provider == "firebase":
                 firebase = FireBasePushAPI()
-                return firebase.send_notification(token, title, body, data=data)
+                return firebase.send_notification(
+                    token, title, body, data=data,
+                    incoming_call=cls._is_incoming_call(data),
+                )
             else:
                 logger.warning(f"Unknown push provider: {provider}, defaulting to firebase")
                 firebase = FireBasePushAPI()
-                return firebase.send_notification(token, title, body, data=data)
+                return firebase.send_notification(
+                    token, title, body, data=data,
+                    incoming_call=cls._is_incoming_call(data),
+                )
         except Exception as e:
             logger.exception(f"Failed to send push notification via {provider}: {e}")
             return None
@@ -60,20 +68,44 @@ class PushNotificationService:
                 # Expo can send multiple, but our current implementation sends one by one
                 results = []
                 for token in tokens:
-                    result = ExpoNotificationAPI.send_notification(token, title, body, data=data)
+                    result = ExpoNotificationAPI.send_notification(
+                        token, title, body, data=data, **cls._expo_call_options(data)
+                    )
                     results.append(result)
                 return results
             elif provider == "firebase":
                 firebase = FireBasePushAPI()
                 if len(tokens) == 1:
-                    return firebase.send_notification(tokens[0], title, body, data=data)
-                return firebase.send_bulk_notification(tokens, title, body, data=data)
+                    return firebase.send_notification(
+                        tokens[0], title, body, data=data,
+                        incoming_call=cls._is_incoming_call(data),
+                    )
+                return firebase.send_bulk_notification(
+                    tokens, title, body, data=data,
+                    incoming_call=cls._is_incoming_call(data),
+                )
             else:
                 logger.warning(f"Unknown push provider: {provider}, defaulting to firebase")
                 firebase = FireBasePushAPI()
                 if len(tokens) == 1:
-                    return firebase.send_notification(tokens[0], title, body, data=data)
-                return firebase.send_bulk_notification(tokens, title, body, data=data)
+                    return firebase.send_notification(
+                        tokens[0], title, body, data=data,
+                        incoming_call=cls._is_incoming_call(data),
+                    )
+                return firebase.send_bulk_notification(
+                    tokens, title, body, data=data,
+                    incoming_call=cls._is_incoming_call(data),
+                )
         except Exception as e:
             logger.exception(f"Failed to send bulk push notification via {provider}: {e}")
             return None
+
+    @staticmethod
+    def _is_incoming_call(data: Optional[dict]) -> bool:
+        return bool(data and data.get("type") == "incoming_call")
+
+    @classmethod
+    def _expo_call_options(cls, data: Optional[dict]) -> dict:
+        if not cls._is_incoming_call(data):
+            return {}
+        return {"priority": "high", "ttl": 40, "sound": "default"}

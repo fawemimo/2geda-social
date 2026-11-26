@@ -11,13 +11,23 @@ EXPO_PUSH_TIMEOUT = 10
 class ExpoNotificationAPI:
 
     @staticmethod
-    def send_notification(token, title, body, data=None):
+    def send_notification(token, title, body, data=None, priority=None, ttl=None, sound=None):
         """
         Sends a single notification to a given device token using Expo's push notification service.
         """
         url = "https://exp.host/--/api/v2/push/send"
         headers = {"Content-Type": "application/json"}
-        payload_data = {"to": token, "title": title, "body": body, "data":data}
+        payload_data = {"to": token, "data": data or {}}
+        if title is not None:
+            payload_data["title"] = title
+        if body is not None:
+            payload_data["body"] = body
+        if priority:
+            payload_data["priority"] = priority
+        if ttl is not None:
+            payload_data["ttl"] = ttl
+        if sound:
+            payload_data["sound"] = sound
         if data:
             payload_data["data"] = data
 
@@ -42,7 +52,7 @@ class ExpoNotificationAPI:
             return None
 
     @staticmethod
-    def send_bulk_notification(tokens, title, body, data=None):
+    def send_bulk_notification(tokens, title, body, data=None, priority=None, ttl=None, sound=None):
         """
         Sends bulk notifications to multiple device tokens using Expo's push notification service.
         """
@@ -53,7 +63,17 @@ class ExpoNotificationAPI:
         headers = {"Content-Type": "application/json"}
         messages = []
         for token in tokens:
-            message = {"to": token, "title": title, "body": body, "data":data}
+            message = {"to": token, "data": data or {}}
+            if title is not None:
+                message["title"] = title
+            if body is not None:
+                message["body"] = body
+            if priority:
+                message["priority"] = priority
+            if ttl is not None:
+                message["ttl"] = ttl
+            if sound:
+                message["sound"] = sound
             if data:
                 message["data"] = data
             messages.append(message)

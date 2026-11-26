@@ -21,9 +21,9 @@ psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d postgres -c "SELECT 1 FROM pg_da
   psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d postgres -c "CREATE DATABASE $POSTGRES_DB"
 }
 
-# # Run migrations
-# echo "Running makemigrations..."
-# python manage.py makemigrations
+# Run migrations
+echo "Running makemigrations..."
+python manage.py makemigrations
 
 
 # Run migrations

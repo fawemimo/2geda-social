@@ -475,6 +475,43 @@ If the app is in the **background**, the platform push notification layer
 should trigger a **CallKit** (iOS) or **ConnectionService** (Android) UI
 that displays the incoming call natively.
 
+### Background call delivery
+
+Register each device with its platform token using `POST /api/v2/accounts/me/devices/`:
+
+```json
+{
+  "platform": "ios",
+  "device_fingerprint": "stable-device-id",
+  "voip_token": "pushkit-voip-token"
+}
+```
+
+For Android, register `platform: "android"` and the Expo push token as
+`push_token`. On `call.offer`, the caller receives `call_started` with the
+server-generated `call_id`; include that ID in subsequent `call.answer` and
+`call.end` messages. The receiver gets the same ID in `call_offer` or in the
+background push. Use it to deduplicate the push and live socket event, and to
+stop the native ringing UI when `call_cancelled` arrives.
+
+When the app wakes and reconnects, the WebSocket `connected` message includes
+`pending_calls` with the unexpired offer SDP. Feed that offer into the normal
+WebRTC accept flow; the server clears the stored SDP after answer, decline, or
+call end.
+
+The lock-screen decline action can call
+`POST /api/v2/chats/calls/decline/` with `caller_id`, `conversation_id`, and
+`call_id`. The API updates the call log and notifies the caller.
+
+The server sends Android call pushes through Expo as high-priority, data-only
+messages with a 40-second TTL. iOS call pushes go directly to APNs using the
+registered VoIP token and the `com.techcity.togeda.voip` topic. Configure
+`APNS_KEY_ID` and `APNS_AUTH_KEY_PATH` for the Apple `.p8` key;
+`APNS_TEAM_ID` defaults to `RA93FW7557`. Set `APNS_USE_SANDBOX=1` for Apple
+development tokens. The iOS app must register the PushKit token and report
+the incoming call through CallKit; the push alone does not create the WebRTC
+connection.
+
 ---
 
 ## 10. Error Handling

@@ -56,18 +56,27 @@ class FireBasePushAPI:
                 code="firebase_request_failed",
             )
 
-    def send_notification(self, push_token, title, body, data=None):
+    def send_notification(self, push_token, title, body, data=None, incoming_call=False):
         if not push_token:
             logger.warning("Device token is missing. Notification cannot be sent.")
             return {"message": "Device token is missing"}
 
-        payload = {
-            "message": {
+        message = {
                 "token": push_token,
                 "notification": {"title": title, "body": body},
-                "data": data or {},
-            }
+                "data": {str(key): str(value) for key, value in (data or {}).items()},
         }
+        if incoming_call:
+            message["android"] = {
+                "priority": "HIGH",
+                "ttl": "40s",
+                "notification": {"sound": "default", "channel_id": "incoming_calls"},
+            }
+            message["apns"] = {
+                "headers": {"apns-priority": "10", "apns-push-type": "alert"},
+                "payload": {"aps": {"sound": "default"}},
+            }
+        payload = {"message": message}
 
         try:
             logger.info("Sending push notification.")
@@ -88,36 +97,15 @@ class FireBasePushAPI:
                 "An unexpected error occurred.", code="unexpected_error"
             )
 
-    def send_bulk_notification(self, tokens, title, body, data=None):
+    def send_bulk_notification(self, tokens, title, body, data=None, incoming_call=False):
         if not tokens:
             logger.warning("No device tokens provided for bulk notification.")
             raise ValidationError("No device tokens provided.", code="no_device_tokens")
 
-        payload = {
-            "message": {
-                "token": tokens,
-                "notification": {"title": title, "body": body},
-                "data": data or {},
-            }
-        }
-
-        try:
-            logger.info("Sending bulk push notification to %s token(s).", len(tokens))
-            response = requests.post(self.url, headers=self.get_headers(), json=payload)
-            response_data = response.json()
-            logger.info(f"Bulk notification sent. Response: {response_data}")
-            return response_data
-        except requests.RequestException as e:
-            logger.exception(
-                f"HTTP request failed while sending bulk notification: {e}"
+        logger.info("Sending push notification to %s token(s).", len(tokens))
+        return [
+            self.send_notification(
+                token, title, body, data=data, incoming_call=incoming_call
             )
-            raise ValidationError(
-                "Failed to send bulk notification.", code="firebase_send_failed"
-            )
-        except Exception as e:
-            logger.exception(
-                f"Unexpected error occurred while sending bulk notification: {e}"
-            )
-            raise ValidationError(
-                "An unexpected error occurred.", code="unexpected_error"
-            )
+            for token in tokens
+        ]

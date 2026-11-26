@@ -241,6 +241,8 @@ class UserDevice(BaseModel):
     # Push notification token (FCM / APNs)
     push_token = models.TextField(blank=True)
     push_token_updated_at = models.DateTimeField(null=True, blank=True)
+    voip_token = models.TextField(blank=True)
+    voip_token_updated_at = models.DateTimeField(null=True, blank=True)
 
     # Trust state
     is_trusted = models.BooleanField(default=False, db_index=True)
@@ -249,7 +251,7 @@ class UserDevice(BaseModel):
     # Last activity
     last_seen_at = models.DateTimeField(null=True, blank=True, db_index=True)
     last_ip = models.GenericIPAddressField(null=True, blank=True)
-    
+
 
     class Meta:
         db_table = "accounts_user_device"
@@ -263,10 +265,15 @@ class UserDevice(BaseModel):
     def revoke(self):
         """Soft-delete = logout from this device."""
         self.push_token = ""
+        self.voip_token = ""
+        self.voip_token_updated_at = None
         self.is_trusted = False
         self.is_deleted = True
         self.deleted_at = timezone.now()
-        self.save(update_fields=["push_token", "is_trusted", "is_deleted", "deleted_at"])
+        self.save(update_fields=[
+            "push_token", "voip_token", "voip_token_updated_at",
+            "is_trusted", "is_deleted", "deleted_at",
+        ])
 
     def __str__(self) -> str:
         return f"{self.name or self.platform} ({self.user_id})"
@@ -553,7 +560,7 @@ class Connection(UUIDPrimaryKeyMixin, TimestampMixin):
 
     def __str__(self) -> str:
         return f"{self.requester.username} - {self.recipient.username} [{self.status}]"
-    
+
 
 class KYC(BaseModel):
     """
@@ -682,4 +689,4 @@ class UserPhoneCatalog(BaseModel):
 
     def __str__(self) -> str:
         return f"PhoneCatalog({self.phone_serial_no}) -> {self.user.username}"
-    
+
